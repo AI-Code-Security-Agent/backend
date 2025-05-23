@@ -283,7 +283,6 @@ const handleForgotPasswordPostRequest = async (req, res) => {
         email: email,
       },
     });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -294,9 +293,43 @@ const handleForgotPasswordPostRequest = async (req, res) => {
   }
 };
 
+const handleResetPasswordVerificationGetRequest = async (req, res) => {
+  try {
+    const verificationID = req.query.id;
+    const email = req.query.email;
+    const verfication = await ForgotPassword.findOne({
+      email,
+      verificationCode: verificationID,
+    });
 
+    if (!verfication) {
+      return res.status(200).json({
+        isSuccess: false,
+        message: "Verification failed .",
+        content: null,
+      });
+    }
+
+    res.status(200).json({
+      isSuccess: true,
+      message: "Verification Success .",
+      content: {
+        verfication: verfication,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      isSuccess: false,
+      message: "Internal server error",
+      content: null,
+    });
+  }
+};
 
 module.exports = {
   handleLogin,
   handleForgotPasswordPostRequest,
+  handleResetPasswordVerificationGetRequest,
+  
 };
