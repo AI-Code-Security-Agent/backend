@@ -11,7 +11,7 @@ const config = require(path.join(__dirname, "..", "config", "config.json"))[
   env
 ];
 const emailService = require("../email");
-const jwt = require("jsonwebtoken");
+
 
 const getHTMLEmail = (link) => {
   return `<!DOCTYPE html>
