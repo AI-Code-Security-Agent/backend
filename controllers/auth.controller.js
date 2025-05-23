@@ -327,9 +327,58 @@ const handleResetPasswordVerificationGetRequest = async (req, res) => {
   }
 };
 
+const handleResetPasswordPostRequest = async (req, res) => {
+  try {
+    const { email, verificationID, password, confirmPassword } = req.body;
+    if (password !== confirmPassword) {
+      return res.status(200).json({
+        isSuccess: false,
+        message: "Password and Confirm Password should be same",
+        content: null,
+      });
+    }
+
+    const [verification, user] = await Promise.all([
+      ForgotPassword.findOne({ email, verificationCode: verificationID }),
+      User.findOne({ email }),
+    ]);
+
+    if (!verification || !user) {
+      return res.status(200).json({
+        isSuccess: false,
+        message: user ? "Verification failed." : "User not found.",
+        content: null,
+      });
+    }
+
+    const salt = await bcryptjs.genSalt(10);
+    const hashedPassword = await bcryptjs.hash(password, salt);
+
+    user.password = hashedPassword;
+    await user.save();
+    await ForgotPassword.deleteOne({ email });
+
+    res.status(200).json({
+      isSuccess: true,
+      message: "Password reset successfully.",
+      content: {
+        user: user,
+      },
+    });
+    
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      isSuccess: false,
+      message: "Internal server error",
+      content: null,
+    });
+  }
+};
+
 module.exports = {
   handleLogin,
   handleForgotPasswordPostRequest,
   handleResetPasswordVerificationGetRequest,
-  
+  handleResetPasswordPostRequest,
 };
