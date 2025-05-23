@@ -1,0 +1,16 @@
+{
+    "development":{
+        "domain":"http://localhost:4000",
+        "client_domain":"http://localhost:3000",
+        "MongoURI" : "mongodb+srv://FinalYearUser:FinalYearPass@vehiclestore.j5xcwn3.mongodb.net/?retryWrites=true&w=majority&appName=VehicleStore",
+        "Mail_User": "teamproject20batch@gmail.com",
+        "Mail_Pass": "urtphfwyewuvokdb" 
+    },
+    "UAT":{
+        "domain":"http://localhost:4000",
+        "client_domain":"http://localhost:3000",
+        "MongoURI" : "mongodb+srv://FinalYearUser:FinalYearPass@vehiclestore.j5xcwn3.mongodb.net/?retryWrites=true&w=majority&appName=VehicleStore",
+        "Mail_User": "teamproject20batch@gmail.com",
+        "Mail_Pass": "urtphfwyewuvokdb" 
+    }
+} 
