@@ -1,6 +1,8 @@
 const passport = require("passport");
+const { v4: uuidv4 } = require("uuid");
 const bcryptjs = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const User = require('../models/user.model')
 
 const handleLogin = (req, res, next) => {
   passport.authenticate("local", (err, user, info) => {
@@ -45,6 +47,19 @@ const handleLogin = (req, res, next) => {
 
 const handleForgotPasswordPostRequest = async (req, res) => {
   try {
+    const email = req.body.email;
+    const user = User.findOne({email});
+
+    if (!user) {
+      return res.status(200).json({
+        isSuccess: false,
+        message: "User not found.",
+        content: null,
+      });
+    }
+
+    const verificationCode = uuidv4().slice(0, 20);
+    
 
     
   } catch (err) {
@@ -59,4 +74,5 @@ const handleForgotPasswordPostRequest = async (req, res) => {
 
 module.exports = {
   handleLogin,
+  handleForgotPasswordPostRequest
 };
