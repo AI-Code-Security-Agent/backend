@@ -264,7 +264,7 @@ const handleForgotPasswordPostRequest = async (req, res) => {
       await ForgotPassword.create({ email, verificationCode });
     }
 
-    const link = `${config["client_domain"]}/resetPassword?id=${verificationCode}&email=${email}`;
+    const link = `${config["client_domain"]}/reset-password?id=${verificationCode}&email=${email}`;
     const emailContent = getHTMLEmail(link);
     const sendEmail = await emailService.send(email, emailContent);
 
