@@ -19,7 +19,7 @@ const UserSchema = new Schema({
         type: String,
         required: [true, "Please provide a password"],
     },
-    gitAccessTiken:{
+    gitAccessToken:{
         type : String
     }
 });
