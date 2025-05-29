@@ -221,7 +221,7 @@ const handleLogin = (req, res, next) => {
       try {
         const userId = { id: user._id };
         const accessToken = jwt.sign(userId, process.env.ACCESS_TOKEN_SECRET, {
-          expiresIn: "24",
+          expiresIn: "24h",
         });
 
         return res.status(200).json({
