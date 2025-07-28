@@ -1,103 +1,113 @@
-// controllers/chatController.js
-
-const ChatSession = require('../models/chatSession.model');
-const ChatMessage = require('../models/chatMessage.model');
-const User = require('../models/user.model');
-const axios = require('axios'); 
+const ChatSession = require("../models/chatSession.model");
+const ChatMessage = require("../models/chatMessage.model");
+const axios = require("axios");
 
 // Create new chat session
 const createChatSession = async (req, res) => {
   try {
-    const { userId, title, model = 'llm' } = req.body;
+    const { userId, title, model } = req.body;
 
     const session = new ChatSession({
       user: userId,
-      title,
-      model
+      title: title || "New Chat",
+      model: model || "llm"
     });
 
     await session.save();
     res.status(201).json(session);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to create session' });
+    res.status(500).json({ error: "Error creating session", detail: err.message });
   }
 };
 
 // Get all sessions for a user
-const getChatSessions = async (req, res) => {
+const getSessionsByUser = async (req, res) => {
   try {
     const { userId } = req.params;
-
-    const sessions = await ChatSession.find({ user: userId })
-      .sort({ createdAt: -1 });
-
+    const sessions = await ChatSession.find({ user: userId }).sort({ createdAt: -1 });
     res.status(200).json(sessions);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to get chat sessions' });
+    res.status(500).json({ error: "Error fetching sessions" });
   }
 };
 
-// Get messages for a session
-const getChatMessages = async (req, res) => {
+// Get messages of a session
+const getSessionMessages = async (req, res) => {
   try {
     const { sessionId } = req.params;
-
     const messages = await ChatMessage.find({ session: sessionId }).sort({ timestamp: 1 });
-
     res.status(200).json(messages);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to get messages' });
+    res.status(500).json({ error: "Error fetching messages" });
   }
 };
 
-// Send message and get assistant reply
+// Send message and get response from FastAPI
 const sendMessage = async (req, res) => {
   try {
-    const { sessionId, userId, message } = req.body;
+    let { userId, sessionId, message } = req.body;
 
-    // 1. Save user message
-    const userMsg = new ChatMessage({
+    // If sessionId is not provided, create a new session
+    let newSessionCreated = false;
+    if (!sessionId) {
+      const newSession = new ChatSession({
+        user: userId,
+        title: "New Chat",
+        model: "llm"
+      });
+      await newSession.save();
+      sessionId = newSession._id.toString();
+      newSessionCreated = true;
+    }
+
+    // Save user message
+    const userMessage = await ChatMessage.create({
       session: sessionId,
-      role: 'user',
+      role: "user",
       content: message
     });
-    await userMsg.save();
 
-    // 2. Prepare messages history (optional: use context)
-    const messages = await ChatMessage.find({ session: sessionId })
-      .sort({ timestamp: 1 });
+    // Fetch full message history for the session
+    const messageDocs = await ChatMessage.find({ session: sessionId }).sort({ timestamp: 1 });
 
-    const formattedMessages = messages.map(msg => ({
+    const formattedMessages = messageDocs.map((msg) => ({
       role: msg.role,
       content: msg.content
     }));
 
-    // 3. Call LLM endpoint (replace this with your actual API URL/token)
-    const response = await axios.post('https://api.your-llm-provider.com/chat', {
-      messages: formattedMessages
+    // Call FastAPI LLM backend
+    const fastApiResponse = await axios.post("http://localhost:8001/chat", {
+      message,
+      session_id: sessionId,
+      max_tokens: 1000,
+      temperature: 0.7
     });
 
-    const assistantReply = response.data.reply; // adapt this to your API's structure
+    const assistantReply = fastApiResponse.data.response;
 
-    // 4. Save assistant message
-    const assistantMsg = new ChatMessage({
+    // Save assistant message
+    const assistantMessage = await ChatMessage.create({
       session: sessionId,
-      role: 'assistant',
+      role: "assistant",
       content: assistantReply
     });
-    await assistantMsg.save();
 
-    // 5. Return updated messages
-    res.status(200).json([userMsg, assistantMsg]);
+    res.status(200).json({
+      user: userMessage,
+      assistant: assistantMessage,
+      session_id: sessionId,
+      new_session: newSessionCreated
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to send message' });
+    console.error("Send Message Error:", err.message);
+    res.status(500).json({ error: "Error processing message", detail: err.message });
   }
 };
 
 module.exports = {
   createChatSession,
-  getChatSessions,
-  getChatMessages,
+  getSessionsByUser,
+  getSessionMessages,
   sendMessage
 };

@@ -49,6 +49,7 @@ mongoose
   })
   .catch((err) => console.error("MongoDB connection error:", err));
 
+app.use("/chat", require("./routes/chat.route"));
 app.use('/users', require('./routes/user.route'));
 app.use("/auth", require('./routes/auth.route'));
 
