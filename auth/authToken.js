@@ -33,6 +33,7 @@ module.exports = {
                             message: 'User not found in token verification',
                         });
                     }
+                    // console.log("Current User:", currentUser);
                     req.user = currentUser;
                     next();
                 } catch (error) {

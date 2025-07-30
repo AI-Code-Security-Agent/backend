@@ -107,23 +107,24 @@ const getSessionMessages = async (req, res) => {
 // Send message and get response from FastAPI
 const sendMessage = async (req, res) => {
   try {
-    let { userId, sessionId, message } = req.body;
-
-    // 1. If sessionId is not provided, create a new session
-    if (!sessionId) {
+    let {session_id, message } = req.body;
+    const  userId  = req.user._id;
+    // console.log("User ID:", userId);
+    // 1. If session_id is not provided, create a new session
+    if (!session_id) {
       const newSession = await ChatSession.create({ user: userId });
-      sessionId = newSession._id;
+      session_id = newSession._id;
     }
 
     // 2. Save user's message
     const userMessage = await ChatMessage.create({
-      session: sessionId,
+      session: session_id,
       role: "user",
       content: message,
     });
 
     // 3. Get all messages in this session
-    const messageDocs = await ChatMessage.find({ session: sessionId }).sort({
+    const messageDocs = await ChatMessage.find({ session: session_id }).sort({
       timestamp: 1,
     });
     const formattedMessages = messageDocs.map((msg) => ({
@@ -137,7 +138,7 @@ const sendMessage = async (req, res) => {
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
       {
         message,
-        session_id: sessionId,
+        session_id: session_id,
         max_tokens: 1000,
         temperature: 0.7,
       }
@@ -147,16 +148,16 @@ const sendMessage = async (req, res) => {
 
     // 5. Save assistant's reply
     const assistantMessage = await ChatMessage.create({
-      session: sessionId,
+      session: session_id,
       role: "assistant",
       content: assistantReply,
     });
 
     // 6. Send response back
     res.status(200).json({
-      user: userMessage,
-      assistant: assistantMessage,
-      session_id: sessionId,
+      message_count: messageDocs.length + 1, // +1 for the assistant's message
+      response: assistantMessage.content,
+      session_id: session_id,
     });
   } catch (err) {
     console.error("Send Message Error:", err.message);
