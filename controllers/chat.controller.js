@@ -81,10 +81,11 @@ const createChatSession = async (req, res) => {
 // Get all sessions for a user
 const getSessionsByUser = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId  = req.user._id;
     const sessions = await ChatSession.find({ user: userId }).sort({
       createdAt: -1,
     });
+    console.log('sessions :', sessions)
     res.status(200).json(sessions);
   } catch (err) {
     res.status(500).json({ error: "Error fetching sessions" });

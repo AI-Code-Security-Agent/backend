@@ -3,11 +3,11 @@ const router = express.Router();
 const {authenticateToken} = require('../auth/authToken')
 const chatController = require("../controllers/chat.controller");
 
-router.get("/health_rag", chatController.ragHealthCheck);
-router.get("/health_llm",  chatController.llmHealthCheck);
-router.post("/sessions",  chatController.createChatSession);
-router.get("/sessions/:userId", chatController.getSessionsByUser);
-router.get("/sessions/:sessionId/messages", chatController.getSessionMessages);
+router.get("/health_rag",authenticateToken, chatController.ragHealthCheck);
+router.get("/health_llm",authenticateToken,  chatController.llmHealthCheck);
+router.post("/sessions",authenticateToken,  chatController.createChatSession);
+router.get("/sessions",authenticateToken, chatController.getSessionsByUser);
+router.get("/sessions/:sessionId/messages",authenticateToken, chatController.getSessionMessages);
 router.post("/messages_llm",authenticateToken, chatController.sendMessageToLLM);
 
 module.exports = router;
