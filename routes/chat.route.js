@@ -8,7 +8,7 @@ router.get("/health_llm",  chatController.llmHealthCheck);
 router.post("/sessions",  chatController.createChatSession);
 router.get("/sessions/:userId", chatController.getSessionsByUser);
 router.get("/sessions/:sessionId/messages", chatController.getSessionMessages);
-router.post("/messages",authenticateToken, chatController.sendMessage);
+router.post("/messages_llm",authenticateToken, chatController.sendMessageToLLM);
 
 module.exports = router;
 

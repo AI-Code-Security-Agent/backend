@@ -15,6 +15,10 @@ const ChatMessageSchema = new Schema({
     type: String,
     required: true
   },
+  model: {
+    type: String, // 'rag' or 'llm'
+    default: 'llm'
+  },
   timestamp: {
     type: Date,
     default: Date.now

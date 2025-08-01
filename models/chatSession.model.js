@@ -14,10 +14,6 @@ const ChatSessionSchema = new Schema({
   createdAt: {
     type: Date,
     default: Date.now
-  },
-  model: {
-    type: String, // 'rag' or 'llm'
-    default: 'llm'
   }
 });
 
