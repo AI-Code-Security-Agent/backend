@@ -81,11 +81,11 @@ const createChatSession = async (req, res) => {
 // Get all sessions for a user
 const getSessionsByUser = async (req, res) => {
   try {
-    const userId  = req.user._id;
+    const userId = req.user._id;
     const sessions = await ChatSession.find({ user: userId }).sort({
       createdAt: -1,
     });
-    console.log('sessions :', sessions)
+    console.log("sessions :", sessions);
     res.status(200).json(sessions);
   } catch (err) {
     res.status(500).json({ error: "Error fetching sessions" });
@@ -108,15 +108,17 @@ const getSessionMessages = async (req, res) => {
 // Send message and get response from FastAPI
 const sendMessageToLLM = async (req, res) => {
   try {
-    let {session_id, message } = req.body;
-    const  userId  = req.user._id;
+    let { session_id, message } = req.body;
+    const userId = req.user._id;
     const model = "llm";
+    let isNewSession = false;
 
     // 1. If session_id is not provided, create a new session
     if (!session_id) {
       const newSession = await ChatSession.create({ user: userId });
       session_id = newSession._id;
-    }else{
+      isNewSession = true;
+    } else {
       // Validate session_id
       const session = await ChatSession.findById(session_id);
       if (!session) {
@@ -132,15 +134,23 @@ const sendMessageToLLM = async (req, res) => {
       session: session_id,
       role: "user",
       content: message,
-      model:model
+      model: model,
     });
 
-    // 3. Get all messages in this session
+    // 3. If this is a new session, update the title
+    if (isNewSession) {
+      const maxTitleLength = 30;
+      const trimmedTitle = message.trim().substring(0, maxTitleLength);
+      await ChatSession.findByIdAndUpdate(session_id, {
+        title: trimmedTitle || "New Chat",
+      });
+    }
+
+    // 4. Get all messages in this session
     const messageDocs = await ChatMessage.find({ session: session_id }).sort({
       timestamp: 1,
     });
 
-    console.log('message docs :', messageDocs)
     const formattedMessages = messageDocs.map((msg) => ({
       role: msg.role,
       content: msg.content,
@@ -149,7 +159,7 @@ const sendMessageToLLM = async (req, res) => {
 
     // console.log('formatted messages :', formattedMessages);
 
-    // 4. Send to FastAPI
+    // 5. Send to FastAPI
     const fastApiResponse = await axios.post(
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
       {
@@ -162,14 +172,14 @@ const sendMessageToLLM = async (req, res) => {
 
     const assistantReply = fastApiResponse.data.response;
 
-    // 5. Save assistant's reply
+    // 6. Save assistant's reply
     const assistantMessage = await ChatMessage.create({
       session: session_id,
       role: "assistant",
       content: assistantReply,
     });
 
-    // 6. Send response back
+    // 7. Send response back
     res.status(200).json({
       message_count: messageDocs.length + 1, // +1 for the assistant's message
       response: assistantMessage.content,
