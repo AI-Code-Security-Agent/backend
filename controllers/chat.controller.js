@@ -8,10 +8,16 @@ const ragBaseUrl = API_CONFIG.RAG_API.BASE_URL;
 
 // Health check for LLM API
 const llmHealthCheck = async (req, res) => {
+  console.log(
+    "RAG URL :",
+    `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.HEALTH}`
+  );
   try {
     const response = await axios.get(
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.HEALTH}`
     );
+
+    console.log("LLM Health Check Response:", response.data);
 
     if (response.status !== 200) {
       return res.status(500).json({
@@ -85,7 +91,7 @@ const getSessionsByUser = async (req, res) => {
     const sessions = await ChatSession.find({ user: userId }).sort({
       createdAt: -1,
     });
-    console.log("sessions :", sessions);
+    // console.log("sessions :", sessions);
     res.status(200).json(sessions);
   } catch (err) {
     res.status(500).json({ error: "Error fetching sessions" });
@@ -139,7 +145,7 @@ const sendMessageToLLM = async (req, res) => {
 
     // 3. If this is a new session, update the title
     if (isNewSession) {
-      const maxTitleLength = 30;
+      const maxTitleLength = 20;
       const trimmedTitle = message.trim().substring(0, maxTitleLength);
       await ChatSession.findByIdAndUpdate(session_id, {
         title: trimmedTitle || "New Chat",
@@ -193,6 +199,45 @@ const sendMessageToLLM = async (req, res) => {
   }
 };
 
+// Delete chat session and its messages
+const deleteChatSession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await ChatSession.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        isSuccess: false,
+        message: "Session not found",
+        content: null,
+      });
+    }
+
+    const pre_messages = await ChatMessage.find({ session: sessionId });
+    console.log("Pre Messages length:", pre_messages.length);
+
+    // Delete session and messages concurrently
+    await Promise.all([
+      ChatSession.findByIdAndDelete(sessionId),
+      ChatMessage.deleteMany({ session: sessionId }),
+    ]);
+
+    const post_messages = await ChatMessage.find({ session: sessionId });
+    console.log("Post Messages length:", post_messages.length);``
+
+    res.status(200).json({
+      isSuccess: true,
+      message: "Chat session deleted successfully",
+      content: null,
+    });
+  } catch (err) {
+    console.error("Delete Session Error:", err.message);
+    res.status(500).json({
+      error: "Error deleting session",
+      detail: err.message,
+    });
+  }
+};
+
 module.exports = {
   createChatSession,
   getSessionsByUser,
@@ -200,4 +245,5 @@ module.exports = {
   sendMessageToLLM,
   llmHealthCheck,
   ragHealthCheck,
+  deleteChatSession,
 };
