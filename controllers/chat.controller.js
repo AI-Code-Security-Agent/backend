@@ -8,16 +8,12 @@ const ragBaseUrl = API_CONFIG.RAG_API.BASE_URL;
 
 // Health check for LLM API
 const llmHealthCheck = async (req, res) => {
-  console.log(
-    "RAG URL :",
-    `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.HEALTH}`
-  );
   try {
     const response = await axios.get(
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.HEALTH}`
     );
 
-    console.log("LLM Health Check Response:", response.data);
+    // console.log("LLM Health Check Response:", response.data);
 
     if (response.status !== 200) {
       return res.status(500).json({
@@ -26,7 +22,7 @@ const llmHealthCheck = async (req, res) => {
         content: null,
       });
     }
-    console.log("LLM API is healthy");
+    // console.log("LLM API is healthy");
     res.status(200).json({
       message: "LLM API is healthy",
       isSuccess: true,
@@ -212,8 +208,8 @@ const deleteChatSession = async (req, res) => {
       });
     }
 
-    const pre_messages = await ChatMessage.find({ session: sessionId });
-    console.log("Pre Messages length:", pre_messages.length);
+    // const pre_messages = await ChatMessage.find({ session: sessionId });
+    // console.log("Pre Messages length:", pre_messages.length);
 
     // Delete session and messages concurrently
     await Promise.all([
@@ -221,8 +217,8 @@ const deleteChatSession = async (req, res) => {
       ChatMessage.deleteMany({ session: sessionId }),
     ]);
 
-    const post_messages = await ChatMessage.find({ session: sessionId });
-    console.log("Post Messages length:", post_messages.length);``
+    // const post_messages = await ChatMessage.find({ session: sessionId });
+    // console.log("Post Messages length:", post_messages.length);``
 
     res.status(200).json({
       isSuccess: true,

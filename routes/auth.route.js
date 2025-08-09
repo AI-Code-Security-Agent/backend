@@ -1,7 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/auth.controller');
+const jwt = require('jsonwebtoken'); // <- add this
+const passport = require("passport");
+const FRONTEND_URL = process.env.FRONTEND_URL  || 'http://localhost:3000';
 
+// Start Google login
+router.get('/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] ,prompt: 'select_account'})
+);
+
+// Google callback
+router.get('/google/callback',
+  passport.authenticate('google', { failureRedirect: `${FRONTEND_URL}/login?error=google` }),
+  (req, res) => {
+    console.log('req.user:', req.user);
+    const token = jwt.sign({ id: req.user._id }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '24h' });
+
+    const redirectUrl = `${FRONTEND_URL}/login?accessToken=${encodeURIComponent(token)}&username=${encodeURIComponent(req.user.firstname || req.user.name || '')}`;
+    res.redirect(redirectUrl);
+  }
+);
 
 // login post request
 router.post('/login', authController.handleLogin);

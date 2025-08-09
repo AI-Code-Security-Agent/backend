@@ -8,7 +8,6 @@ const UserSchema = new Schema({
     },
     lastname : {
         type :String,
-        required :[true, "Please provide lastname.."]
     },
     email: {
         type: String,
@@ -17,7 +16,6 @@ const UserSchema = new Schema({
     },
     password: {
         type: String,
-        required: [true, "Please provide a password"],
     },
     gitAccessToken:{
         type : String
