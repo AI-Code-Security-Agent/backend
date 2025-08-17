@@ -12,6 +12,7 @@ const API_CONFIG = {
       CHAT: '/chat',
       HEALTH: '/',
       SESSIONS: '/sessions',
+      CHAT_STREAM: '/chat/stream',
     },
   },
 

@@ -238,11 +238,101 @@ const deleteChatSession = async (req, res) => {
   }
 };
 
+// NEW: stream proxy (Koa/Express style handler)
+const sendMessageToLLMStream = async (req, res) => {
+  try {
+    let { session_id, message, max_tokens = 1000, temperature = 0.7, messages } = req.body;
+    const userId = req.user._id;
+
+    // Ensure session existence like your JSON path:
+    if (!session_id) {
+      const newSession = await ChatSession.create({ user: userId });
+      session_id = newSession._id.toString();
+      // Set a short title based on first message
+      const title = (message || "New Chat").slice(0, 50) || "New Chat";
+      await ChatSession.findByIdAndUpdate(session_id, { title });
+    } else {
+      const session = await ChatSession.findById(session_id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found", detail: "The provided session_id does not exist." });
+      }
+    }
+
+    // Save user message immediately (so history exists for future requests)
+    await ChatMessage.create({
+      session: session_id,
+      role: "user",
+      content: message,
+      model: "llm",
+    });
+
+    // Prepare request to FastAPI streaming endpoint
+    const fastapiUrl = `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"}`;
+
+    const response = await axios.post(
+      fastapiUrl,
+      { session_id, message, messages, max_tokens, temperature },
+      { responseType: "stream" }
+    );
+
+    // Set SSE headers and pipe
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    let assistantBuffer = "";
+
+    response.data.on("data", (chunk) => {
+      const str = chunk.toString();
+      // Accumulate assistant content for DB once we reach [DONE] or meta
+      str.split("\n\n").forEach((evt) => {
+        if (!evt.trim()) return;
+        if (evt.startsWith("event: token")) {
+          const line = evt.split("\n").find((l) => l.startsWith("data: "));
+          if (line) {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.token) assistantBuffer += payload.token;
+          }
+        }
+      });
+      res.write(str);
+    });
+
+    response.data.on("end", async () => {
+      if (assistantBuffer.trim()) {
+        await ChatMessage.create({
+          session: session_id,
+          role: "assistant",
+          content: assistantBuffer,
+          model: "llm",
+        });
+      }
+      // Ensure we send a meta event if FastAPI didn’t:
+      res.write(`event: meta\ndata: ${JSON.stringify({ session_id })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+
+    response.data.on("error", (e) => {
+      res.write(`event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`);
+      res.end();
+    });
+  } catch (err) {
+    console.error("Stream proxy error:", err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Streaming failed", detail: err.message });
+    } else {
+      res.end();
+    }
+  }
+};
+
 module.exports = {
   createChatSession,
   getSessionsByUser,
   getSessionMessages,
   sendMessageToLLM,
+  sendMessageToLLMStream,
   llmHealthCheck,
   ragHealthCheck,
   deleteChatSession,
