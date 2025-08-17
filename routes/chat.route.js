@@ -16,6 +16,7 @@ router.post("/delete_session/:sessionId", authenticateToken, chatController.dele
 // LLM
 router.post("/messages_llm", authenticateToken, chatController.sendMessageToLLM);
 router.post("/stream", authenticateToken, chatController.sendMessageToLLMStream);
+router.post("/demo/stream", chatController.sendMessageToDemoLLMStream);
 
 // RAG
 router.post("/query", authenticateToken, chatController.ragQuery);
