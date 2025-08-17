@@ -15,7 +15,7 @@ module.exports = {
             }
 
             jwt.verify(token ,process.env.ACCESS_TOKEN_SECRET, async(err, user) =>{
-                console.log(token)
+               // console.log(token)
                 if (err) {
                     console.log('error :',err)
                     return res.status(403).json({

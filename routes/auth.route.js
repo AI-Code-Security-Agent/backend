@@ -10,7 +10,6 @@ router.get(
   "/google",
   passport.authenticate("google", {
     scope: ["profile", "email"],
-    prompt: "select_account",
   })
 );
 
@@ -40,27 +39,15 @@ router.get(
 // login post request
 router.post("/login", authController.handleLogin);
 
-// logout post request
 router.post("/logout", (req, res, next) => {
-  req.logOut((err) => {
-    if (err) {
-      return next(err);
-    }
+  req.logOut(err => {
+    if (err) return next(err);
 
-    // Destroy session completely
-    req.session.destroy((err) => {
+    req.session.destroy(err => {
       if (err) {
         console.log("Session destruction error:", err);
       }
-      // Clear cookie on client side
       res.clearCookie("connect.sid", { path: "/" });
-
-      //       res.clearCookie("connect.sid", {
-      //   path: "/",
-      //   httpOnly: true,
-      //   secure: process.env.NODE_ENV === "production", // false on localhost
-      //   sameSite: "lax",
-      // });
 
       res.json({
         isSuccess: true,
@@ -69,6 +56,7 @@ router.post("/logout", (req, res, next) => {
     });
   });
 });
+
 
 // Endpoint for forgot password
 router.post("/forgotPassword", authController.handleForgotPasswordPostRequest);

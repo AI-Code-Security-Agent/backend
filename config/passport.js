@@ -33,9 +33,8 @@ module.exports = function (passport) {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: "/auth/google/callback",
-        passReqToCallback: true,
       },
-      async (req,accessToken, refreshToken, profile, done) => {
+      async (accessToken, refreshToken, profile, done) => {
         try {
           // If no user with this Google ID, check if email already exists
           const existingEmailUser = await User.findOne({
