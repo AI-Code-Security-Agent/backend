@@ -13,8 +13,6 @@ const llmHealthCheck = async (req, res) => {
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.HEALTH}`
     );
 
-    // console.log("LLM Health Check Response:", response.data);
-
     if (response.status !== 200) {
       return res.status(500).json({
         message: "LLM health check failed",
@@ -22,7 +20,7 @@ const llmHealthCheck = async (req, res) => {
         content: null,
       });
     }
-    // console.log("LLM API is healthy");
+    
     res.status(200).json({
       message: "LLM API is healthy",
       isSuccess: true,
@@ -55,7 +53,6 @@ const ragHealthCheck = async () => {
       content: response.data,
     });
   } catch (error) {
-    // console.error("RAG Health Check Error:", error.message || error);
     throw new Error("Failed to connect to RAG API");
   }
 };
@@ -87,7 +84,6 @@ const getSessionsByUser = async (req, res) => {
     const sessions = await ChatSession.find({ user: userId }).sort({
       createdAt: -1,
     });
-    // console.log("sessions :", sessions);
     res.status(200).json(sessions);
   } catch (err) {
     res.status(500).json({ error: "Error fetching sessions" });
@@ -107,10 +103,19 @@ const getSessionMessages = async (req, res) => {
   }
 };
 
+// Helper function to format messages for LLM API
+const formatMessagesForLLM = (messages) => {
+  return messages.map(msg => ({
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp
+  }));
+};
+
 // Send message and get response from FastAPI
 const sendMessageToLLM = async (req, res) => {
   try {
-    let { session_id, message } = req.body;
+    let { session_id, message, max_tokens = 1000, temperature = 0.7 } = req.body;
     const userId = req.user._id;
     const model = "llm";
     let isNewSession = false;
@@ -131,7 +136,40 @@ const sendMessageToLLM = async (req, res) => {
       }
     }
 
-    // 2. Save user's message
+    // 2. Get existing conversation history from database
+    const existingMessages = await ChatMessage.find({ session: session_id }).sort({
+      timestamp: 1,
+    });
+
+    // 3. Format existing messages for LLM API
+    const conversationHistory = formatMessagesForLLM(existingMessages);
+
+    console.log(`Sending ${conversationHistory.length} previous messages + 1 new message to LLM`);
+
+    // 4. If this is a new session, update the title based on first message
+    if (isNewSession) {
+      const maxTitleLength = 50;
+      const trimmedTitle = message.trim().substring(0, maxTitleLength);
+      await ChatSession.findByIdAndUpdate(session_id, {
+        title: trimmedTitle || "New Chat",
+      });
+    }
+
+    // 5. Send to FastAPI with conversation history
+    const fastApiResponse = await axios.post(
+      `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
+      {
+        message,
+        session_id: session_id,
+        messages: conversationHistory, // Include conversation history
+        max_tokens,
+        temperature,
+      }
+    );
+
+    const assistantReply = fastApiResponse.data.response;
+
+    // 6. Save user message to database
     const userMessage = await ChatMessage.create({
       session: session_id,
       role: "user",
@@ -139,56 +177,28 @@ const sendMessageToLLM = async (req, res) => {
       model: model,
     });
 
-    // 3. If this is a new session, update the title
-    if (isNewSession) {
-      const maxTitleLength = 20;
-      const trimmedTitle = message.trim().substring(0, maxTitleLength);
-      await ChatSession.findByIdAndUpdate(session_id, {
-        title: trimmedTitle || "New Chat",
-      });
-    }
-
-    // 4. Get all messages in this session
-    const messageDocs = await ChatMessage.find({ session: session_id }).sort({
-      timestamp: 1,
-    });
-
-    const formattedMessages = messageDocs.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.timestamp,
-    }));
-
-    // console.log('formatted messages :', formattedMessages);
-
-    // 5. Send to FastAPI
-    const fastApiResponse = await axios.post(
-      `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
-      {
-        message,
-        session_id: session_id,
-        max_tokens: 1000,
-        temperature: 0.7,
-      }
-    );
-
-    const assistantReply = fastApiResponse.data.response;
-
-    // 6. Save assistant's reply
+    // 7. Save assistant's reply to database
     const assistantMessage = await ChatMessage.create({
       session: session_id,
       role: "assistant",
       content: assistantReply,
+      model: model,
     });
 
-    // 7. Send response back
+    // 8. Get updated message count
+    const totalMessages = await ChatMessage.countDocuments({ session: session_id });
+
+    // 9. Send response back
     res.status(200).json({
-      message_count: messageDocs.length + 1, // +1 for the assistant's message
+      message_count: totalMessages,
       response: assistantMessage.content,
       session_id: session_id,
     });
   } catch (err) {
     console.error("Send Message Error:", err.message);
+    if (err.response) {
+      console.error("FastAPI Error Response:", err.response.data);
+    }
     res
       .status(500)
       .json({ error: "Error processing message", detail: err.message });
@@ -208,17 +218,11 @@ const deleteChatSession = async (req, res) => {
       });
     }
 
-    // const pre_messages = await ChatMessage.find({ session: sessionId });
-    // console.log("Pre Messages length:", pre_messages.length);
-
     // Delete session and messages concurrently
     await Promise.all([
       ChatSession.findByIdAndDelete(sessionId),
       ChatMessage.deleteMany({ session: sessionId }),
     ]);
-
-    // const post_messages = await ChatMessage.find({ session: sessionId });
-    // console.log("Post Messages length:", post_messages.length);``
 
     res.status(200).json({
       isSuccess: true,
