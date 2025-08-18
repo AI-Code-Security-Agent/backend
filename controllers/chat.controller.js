@@ -33,7 +33,7 @@ const llmHealthCheck = async (req, res) => {
 };
 
 // Health check for RAG API
-const ragHealthCheck = async () => {
+const ragHealthCheck = async (req, res) => {  // ✅ Added missing parameters
   try {
     const response = await axios.get(
       `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.HEALTH}`
@@ -46,6 +46,7 @@ const ragHealthCheck = async () => {
         content: null,
       });
     }
+    
     // console.log("RAG API is healthy");
     res.status(200).json({
       message: "RAG API is healthy",
@@ -53,7 +54,12 @@ const ragHealthCheck = async () => {
       content: response.data,
     });
   } catch (error) {
-    throw new Error("Failed to connect to RAG API");
+    console.error("RAG Health Check Error:", error.message || error);  // ✅ Added error logging
+    res.status(500).json({  // ✅ Added proper error response
+      message: "Failed to connect to RAG API",
+      isSuccess: false,
+      content: null,
+    });
   }
 };
 
@@ -470,4 +476,6 @@ module.exports = {
   ragHealthCheck,
   deleteChatSession,
   sendMessageToDemoLLMStream,
+  ragQuery,
+  ragQueryStream,
 };
