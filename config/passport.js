@@ -48,7 +48,7 @@ module.exports = function (passport) {
           // Create new user
           const newUser = new User({
             email: profile.emails[0].value,
-            firstname: profile.displayName,
+            fullname: profile.displayName,
             password: null, // no password for Google login
           });
 

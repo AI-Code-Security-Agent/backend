@@ -20,7 +20,7 @@ router.get(
     failureRedirect: `${FRONTEND_URL}/login?error=google`,
   }),
   (req, res) => {
-    console.log("req.user:", req.user);
+    // console.log("req.user:", req.user);
     const token = jwt.sign(
       { id: req.user._id },
       process.env.ACCESS_TOKEN_SECRET,
@@ -30,7 +30,7 @@ router.get(
     const redirectUrl = `${FRONTEND_URL}/login?accessToken=${encodeURIComponent(
       token
     )}&username=${encodeURIComponent(
-      req.user.firstname || req.user.name || ""
+      req.user.fullname || req.user.name || ""
     )}`;
     res.redirect(redirectUrl);
   }

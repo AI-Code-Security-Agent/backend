@@ -224,11 +224,13 @@ const handleLogin = (req, res, next) => {
           expiresIn: "24h",
         });
 
+        console.log('User logged in:', user.fullname);
+
         return res.status(200).json({
           isSuccess: true,
           message: "Logged in Successfully!",
           accessToken: accessToken,
-          username: user.firstname,
+          username: user.fullname,
         });
       } catch (err) {
         console.error("Error generating JWT :", err);

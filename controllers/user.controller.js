@@ -190,7 +190,7 @@ const getHTMLEmail = (pass) => {
 
 const handleCreateUserPostRequest = async (req, res) => {
   try {
-    const { firstname, lastname, email, gitAccessToken } = req.body;
+    const { fullname, email, gitAccessToken } = req.body;
     const existingEmail = await User.findOne({ email: email });
 
     if (existingEmail) {
@@ -216,8 +216,7 @@ const handleCreateUserPostRequest = async (req, res) => {
     }
 
     const newUser = await User.create({
-      firstname,
-      lastname,
+      fullname,
       email,
       password: hashedPassword,
       gitAccessToken: gitAccessToken,
