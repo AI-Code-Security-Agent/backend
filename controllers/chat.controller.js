@@ -33,7 +33,7 @@ const llmHealthCheck = async (req, res) => {
 };
 
 // Health check for RAG API
-const ragHealthCheck = async () => {
+const ragHealthCheck = async (req, res) => {  // ✅ Added missing parameters
   try {
     const response = await axios.get(
       `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.HEALTH}`
@@ -46,6 +46,7 @@ const ragHealthCheck = async () => {
         content: null,
       });
     }
+    
     // console.log("RAG API is healthy");
     res.status(200).json({
       message: "RAG API is healthy",
@@ -53,7 +54,60 @@ const ragHealthCheck = async () => {
       content: response.data,
     });
   } catch (error) {
-    throw new Error("Failed to connect to RAG API");
+    console.error("RAG Health Check Error:", error.message || error);  // ✅ Added error logging
+    res.status(500).json({  // ✅ Added proper error response
+      message: "Failed to connect to RAG API",
+      isSuccess: false,
+      content: null,
+    });
+  }
+};
+
+const ragQuery = async (req, res) => {
+  try {
+    const response = await axios.post(
+      `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.QUERY}`,
+      req.body,
+      { timeout: 60000 }
+    );
+    res.status(200).json(response.data);
+  } catch (e) {
+    const status = e.response?.status || 500;
+    return res.status(status).json({ error: "RAG query failed", detail: e.response?.data || e.message });
+  }
+};
+
+const ragQueryStream = async (req, res) => {
+  try {
+    const upstream = await axios.post(
+      `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.QUERY_STREAM}`,
+      req.body,
+      { responseType: "stream", timeout: 0 }
+    );
+
+    // SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    upstream.data.on("data", (chunk) => {
+      res.write(chunk);
+    });
+    upstream.data.on("end", () => {
+      // ensure DONE
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+    upstream.data.on("error", (err) => {
+      res.write(`event: error\ndata: ${JSON.stringify({ detail: err.message })}\n\n`);
+      res.end();
+    });
+  } catch (e) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: "RAG stream failed", detail: e.message });
+    } else {
+      res.end();
+    }
   }
 };
 
@@ -422,4 +476,6 @@ module.exports = {
   ragHealthCheck,
   deleteChatSession,
   sendMessageToDemoLLMStream,
+  ragQuery,
+  ragQueryStream,
 };
