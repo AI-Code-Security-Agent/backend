@@ -7,7 +7,7 @@ const {authenticateToken} = require('../auth/authToken')
 router.post('/createuser', userController.handleCreateUserPostRequest);
 
 router.get('/loguser',authenticateToken, (req, res) => {
-  console.log('Logged-in user:', req.user);  // 👈 This logs the user info to the console
+  // console.log('Logged-in user:', req.user);
   res.status(200).json({
     isSuccess :true,
     message:"Token authnticate successfully.",
@@ -16,6 +16,7 @@ router.get('/loguser',authenticateToken, (req, res) => {
     }
   })
 });
+
 
 
 module.exports = router
