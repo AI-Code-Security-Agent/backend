@@ -20,7 +20,7 @@ const llmHealthCheck = async (req, res) => {
         content: null,
       });
     }
-    
+
     res.status(200).json({
       message: "LLM API is healthy",
       isSuccess: true,
@@ -33,7 +33,8 @@ const llmHealthCheck = async (req, res) => {
 };
 
 // Health check for RAG API
-const ragHealthCheck = async (req, res) => {  // ✅ Added missing parameters
+const ragHealthCheck = async (req, res) => {
+  // ✅ Added missing parameters
   try {
     const response = await axios.get(
       `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.HEALTH}`
@@ -46,7 +47,7 @@ const ragHealthCheck = async (req, res) => {  // ✅ Added missing parameters
         content: null,
       });
     }
-    
+
     // console.log("RAG API is healthy");
     res.status(200).json({
       message: "RAG API is healthy",
@@ -54,8 +55,9 @@ const ragHealthCheck = async (req, res) => {  // ✅ Added missing parameters
       content: response.data,
     });
   } catch (error) {
-    console.error("RAG Health Check Error:", error.message || error);  // ✅ Added error logging
-    res.status(500).json({  // ✅ Added proper error response
+    // console.error("RAG Health Check Error:", error.message || error);  // ✅ Added error logging
+    res.status(500).json({
+      // ✅ Added proper error response
       message: "Failed to connect to RAG API",
       isSuccess: false,
       content: null,
@@ -73,43 +75,16 @@ const ragQuery = async (req, res) => {
     res.status(200).json(response.data);
   } catch (e) {
     const status = e.response?.status || 500;
-    return res.status(status).json({ error: "RAG query failed", detail: e.response?.data || e.message });
+    return res
+      .status(status)
+      .json({
+        error: "RAG query failed",
+        detail: e.response?.data || e.message,
+      });
   }
 };
 
-const ragQueryStream = async (req, res) => {
-  try {
-    const upstream = await axios.post(
-      `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.QUERY_STREAM}`,
-      req.body,
-      { responseType: "stream", timeout: 0 }
-    );
 
-    // SSE headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-
-    upstream.data.on("data", (chunk) => {
-      res.write(chunk);
-    });
-    upstream.data.on("end", () => {
-      // ensure DONE
-      res.write("data: [DONE]\n\n");
-      res.end();
-    });
-    upstream.data.on("error", (err) => {
-      res.write(`event: error\ndata: ${JSON.stringify({ detail: err.message })}\n\n`);
-      res.end();
-    });
-  } catch (e) {
-    if (!res.headersSent) {
-      res.status(500).json({ error: "RAG stream failed", detail: e.message });
-    } else {
-      res.end();
-    }
-  }
-};
 
 // Create new chat session
 const createChatSession = async (req, res) => {
@@ -157,108 +132,6 @@ const getSessionMessages = async (req, res) => {
   }
 };
 
-// Helper function to format messages for LLM API
-const formatMessagesForLLM = (messages) => {
-  return messages.map(msg => ({
-    role: msg.role,
-    content: msg.content,
-    timestamp: msg.timestamp
-  }));
-};
-
-// Send message and get response from FastAPI
-const sendMessageToLLM = async (req, res) => {
-  try {
-    let { session_id, message, max_tokens = 1000, temperature = 0.7 } = req.body;
-    const userId = req.user._id;
-    const model = "llm";
-    let isNewSession = false;
-
-    // 1. If session_id is not provided, create a new session
-    if (!session_id) {
-      const newSession = await ChatSession.create({ user: userId });
-      session_id = newSession._id;
-      isNewSession = true;
-    } else {
-      // Validate session_id
-      const session = await ChatSession.findById(session_id);
-      if (!session) {
-        return res.status(404).json({
-          error: "Session not found",
-          detail: "The provided session_id does not exist.",
-        });
-      }
-    }
-
-    // 2. Get existing conversation history from database
-    const existingMessages = await ChatMessage.find({ session: session_id }).sort({
-      timestamp: 1,
-    });
-
-    // 3. Format existing messages for LLM API
-    const conversationHistory = formatMessagesForLLM(existingMessages);
-
-    console.log(`Sending ${conversationHistory.length} previous messages + 1 new message to LLM`);
-
-    // 4. If this is a new session, update the title based on first message
-    if (isNewSession) {
-      const maxTitleLength = 50;
-      const trimmedTitle = message.trim().substring(0, maxTitleLength);
-      await ChatSession.findByIdAndUpdate(session_id, {
-        title: trimmedTitle || "New Chat",
-      });
-    }
-
-    // 5. Send to FastAPI with conversation history
-    const fastApiResponse = await axios.post(
-      `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
-      {
-        message,
-        session_id: session_id,
-        messages: conversationHistory, // Include conversation history
-        max_tokens,
-        temperature,
-      }
-    );
-
-    const assistantReply = fastApiResponse.data.response;
-
-    // 6. Save user message to database
-    const userMessage = await ChatMessage.create({
-      session: session_id,
-      role: "user",
-      content: message,
-      model: model,
-    });
-
-    // 7. Save assistant's reply to database
-    const assistantMessage = await ChatMessage.create({
-      session: session_id,
-      role: "assistant",
-      content: assistantReply,
-      model: model,
-    });
-
-    // 8. Get updated message count
-    const totalMessages = await ChatMessage.countDocuments({ session: session_id });
-
-    // 9. Send response back
-    res.status(200).json({
-      message_count: totalMessages,
-      response: assistantMessage.content,
-      session_id: session_id,
-    });
-  } catch (err) {
-    console.error("Send Message Error:", err.message);
-    if (err.response) {
-      console.error("FastAPI Error Response:", err.response.data);
-    }
-    res
-      .status(500)
-      .json({ error: "Error processing message", detail: err.message });
-  }
-};
-
 // Delete chat session and its messages
 const deleteChatSession = async (req, res) => {
   try {
@@ -292,27 +165,225 @@ const deleteChatSession = async (req, res) => {
   }
 };
 
-// NEW: stream proxy (Koa/Express style handler)
+
+// Send message and get response from FastAPI
+const sendMessageToLLM = async (req, res) => {
+  try {
+    let {
+      session_id,
+      message,
+      max_tokens = 1000,
+      temperature = 0.7,
+    } = req.body;
+    const userId = req.user._id;
+    const model = "llm";
+    let isNewSession = false;
+
+    // 1. If session_id is not provided, create a new session
+    if (!session_id) {
+      const newSession = await ChatSession.create({ user: userId });
+      session_id = newSession._id;
+      isNewSession = true;
+    } else {
+      // Validate session_id
+      const session = await ChatSession.findById(session_id);
+      if (!session) {
+        return res.status(404).json({
+          error: "Session not found",
+          detail: "The provided session_id does not exist.",
+        });
+      }
+    }
+
+    // 2. Get existing conversation history from database
+    const existingMessages = await ChatMessage.find({
+      session: session_id,
+    }).sort({
+      timestamp: 1,
+    });
+
+    // Helper function to format messages for LLM API
+    const formatMessagesForLLM = (messages) => {
+      return messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }));
+    };
+
+    // 3. Format existing messages for LLM API
+    const conversationHistory = formatMessagesForLLM(existingMessages);
+
+    // console.log(
+    //   `Sending ${conversationHistory.length} previous messages + 1 new message to LLM`
+    // );
+
+    // 4. If this is a new session, update the title based on first message
+    if (isNewSession) {
+      const maxTitleLength = 50;
+      const trimmedTitle = message.trim().substring(0, maxTitleLength);
+      await ChatSession.findByIdAndUpdate(session_id, {
+        title: trimmedTitle || "New Chat",
+      });
+    }
+
+    // 5. Send to FastAPI with conversation history
+    const fastApiResponse = await axios.post(
+      `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
+      {
+        message,
+        session_id: session_id,
+        // messages: conversationHistory,
+        max_tokens,
+        temperature,
+      }
+    );
+
+    const assistantReply = fastApiResponse.data.response;
+
+    // 6. Save user message to database
+    const userMessage = await ChatMessage.create({
+      session: session_id,
+      role: "user",
+      content: message,
+      model: model,
+    });
+
+    // 7. Save assistant's reply to database
+    const assistantMessage = await ChatMessage.create({
+      session: session_id,
+      role: "assistant",
+      content: assistantReply,
+      model: model,
+    });
+
+    // 8. Get updated message count
+    const totalMessages = await ChatMessage.countDocuments({
+      session: session_id,
+    });
+
+    // 9. Send response back
+    res.status(200).json({
+      message_count: totalMessages,
+      response: assistantMessage.content,
+      session_id: session_id,
+    });
+  } catch (err) {
+    console.error("Send Message Error:", err.message);
+    if (err.response) {
+      console.error("FastAPI Error Response:", err.response.data);
+    }
+    res
+      .status(500)
+      .json({ error: "Error processing message", detail: err.message });
+  }
+};
+
+const sendMessageToLLMForDemo = async (req, res) => {
+  try {
+    let { message, max_tokens = 1000, temperature = 0.7 } = req.body;
+
+    // console.log('demo session request body:', req.body);
+
+    const fastApiResponse = await axios.post(
+      `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
+      {
+        message,
+        max_tokens,
+        temperature,
+      }
+    );
+
+    const assistantReply = fastApiResponse.data.response;
+    // console.log("FastAPI response for demo:", assistantReply);
+
+    res.status(200).json({
+      response: assistantReply,
+      session_id: "00000",
+    });
+  } catch (err) {
+    console.error("Send Message Error in Demo session:", err.message);
+    if (err.response) {
+      console.error("FastAPI Error Response:", err.response.data);
+    }
+    res
+      .status(500)
+      .json({ error: "Error processing message", detail: err.message });
+  }
+};
+
+
+
+
+
+// apis for streaming responses 
+
+const ragQueryStream = async (req, res) => {
+  try {
+    const upstream = await axios.post(
+      `${ragBaseUrl}${API_CONFIG.RAG_API.ENDPOINTS.QUERY_STREAM}`,
+      req.body,
+      { responseType: "stream", timeout: 0 }
+    );
+
+    // SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    upstream.data.on("data", (chunk) => {
+      res.write(chunk);
+    });
+    upstream.data.on("end", () => {
+      // ensure DONE
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+    upstream.data.on("error", (err) => {
+      res.write(
+        `event: error\ndata: ${JSON.stringify({ detail: err.message })}\n\n`
+      );
+      res.end();
+    });
+  } catch (e) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: "RAG stream failed", detail: e.message });
+    } else {
+      res.end();
+    }
+  }
+};
+
 const sendMessageToLLMStream = async (req, res) => {
   try {
-    let { session_id, message, max_tokens = 1000, temperature = 0.7, messages } = req.body;
+    let {
+      session_id,
+      message,
+      max_tokens = 1000,
+      temperature = 0.7,
+      messages,
+    } = req.body;
     const userId = req.user._id;
 
-    // Ensure session existence like your JSON path:
+    // ---------- Ensure session exists ----------
     if (!session_id) {
       const newSession = await ChatSession.create({ user: userId });
       session_id = newSession._id.toString();
-      // Set a short title based on first message
       const title = (message || "New Chat").slice(0, 50) || "New Chat";
       await ChatSession.findByIdAndUpdate(session_id, { title });
     } else {
       const session = await ChatSession.findById(session_id);
       if (!session) {
-        return res.status(404).json({ error: "Session not found", detail: "The provided session_id does not exist." });
+        return res
+          .status(404)
+          .json({
+            error: "Session not found",
+            detail: "The provided session_id does not exist.",
+          });
       }
     }
 
-    // Save user message immediately (so history exists for future requests)
+    // ---------- Save user message immediately ----------
     await ChatMessage.create({
       session: session_id,
       role: "user",
@@ -320,8 +391,10 @@ const sendMessageToLLMStream = async (req, res) => {
       model: "llm",
     });
 
-    // Prepare request to FastAPI streaming endpoint
-    const fastapiUrl = `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"}`;
+    // ---------- Prepare request to FastAPI streaming endpoint ----------
+    const fastapiUrl = `${llmBaseUrl}${
+      API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"
+    }`;
 
     const response = await axios.post(
       fastapiUrl,
@@ -329,18 +402,21 @@ const sendMessageToLLMStream = async (req, res) => {
       { responseType: "stream" }
     );
 
-    // Set SSE headers and pipe
+    // ---------- Set SSE headers ----------
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
     let assistantBuffer = "";
 
+    // ---------- STREAM HANDLER ----------
     response.data.on("data", (chunk) => {
       const str = chunk.toString();
-      // Accumulate assistant content for DB once we reach [DONE] or meta
+      // Split into individual SSE events
       str.split("\n\n").forEach((evt) => {
         if (!evt.trim()) return;
+
+        // ---------- Handle token events ----------
         if (evt.startsWith("event: token")) {
           const line = evt.split("\n").find((l) => l.startsWith("data: "));
           if (line) {
@@ -348,10 +424,23 @@ const sendMessageToLLMStream = async (req, res) => {
             if (payload.token) assistantBuffer += payload.token;
           }
         }
+
+        // ---------- NEW: Handle meta events ----------
+        else if (evt.startsWith("event: meta")) {
+          const line = evt.split("\n").find((l) => l.startsWith("data: "));
+          if (line) {
+            const meta = JSON.parse(line.slice(6));
+            // Send meta to frontend immediately (so onDone works)
+            res.write(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`);
+          }
+        }
       });
+
+      // Write raw chunk to frontend as usual
       res.write(str);
     });
 
+    // ---------- End of stream ----------
     response.data.on("end", async () => {
       if (assistantBuffer.trim()) {
         await ChatMessage.create({
@@ -361,14 +450,17 @@ const sendMessageToLLMStream = async (req, res) => {
           model: "llm",
         });
       }
-      // Ensure we send a meta event if FastAPI didn’t:
+
+      // ---------- Ensure final meta if not already sent ----------
       res.write(`event: meta\ndata: ${JSON.stringify({ session_id })}\n\n`);
       res.write("data: [DONE]\n\n");
       res.end();
     });
 
     response.data.on("error", (e) => {
-      res.write(`event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`);
+      res.write(
+        `event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`
+      );
       res.end();
     });
   } catch (err) {
@@ -383,7 +475,13 @@ const sendMessageToLLMStream = async (req, res) => {
 
 const sendMessageToDemoLLMStream = async (req, res) => {
   try {
-    let { session_id, message, max_tokens = 1000, temperature = 0.7, messages } = req.body;
+    let {
+      session_id,
+      message,
+      max_tokens = 1000,
+      temperature = 0.7,
+      messages,
+    } = req.body;
 
     // // Ensure session existence like your JSON path:
     // if (!session_id) {
@@ -401,16 +499,16 @@ const sendMessageToDemoLLMStream = async (req, res) => {
     //   }
     // }
 
-
     // Save user message immediately (so history exists for future requests)
-  
 
     // Prepare request to FastAPI streaming endpoint
-    const fastapiUrl = `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"}`;
+    const fastapiUrl = `${llmBaseUrl}${
+      API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"
+    }`;
 
     const response = await axios.post(
       fastapiUrl,
-      {  message, messages, max_tokens, temperature },
+      { message, messages, max_tokens, temperature },
       { responseType: "stream" }
     );
 
@@ -423,6 +521,7 @@ const sendMessageToDemoLLMStream = async (req, res) => {
 
     response.data.on("data", (chunk) => {
       const str = chunk.toString();
+      // console.log("FastAPI chunk received:", str);
       // Accumulate assistant content for DB once we reach [DONE] or meta
       str.split("\n\n").forEach((evt) => {
         if (!evt.trim()) return;
@@ -448,12 +547,16 @@ const sendMessageToDemoLLMStream = async (req, res) => {
       // }
       // Ensure we send a meta event if FastAPI didn’t:
       // res.write(`event: meta\ndata: ${JSON.stringify({ session_id })}\n\n`);
+      // console.log("FastAPI stream ended. Assistant buffer:", assistantBuffer);
       res.write("data: [DONE]\n\n");
       res.end();
     });
 
     response.data.on("error", (e) => {
-      res.write(`event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`);
+      // console.error("FastAPI stream error:", e);
+      res.write(
+        `event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`
+      );
       res.end();
     });
   } catch (err) {
@@ -478,4 +581,5 @@ module.exports = {
   sendMessageToDemoLLMStream,
   ragQuery,
   ragQueryStream,
+  sendMessageToLLMForDemo,
 };

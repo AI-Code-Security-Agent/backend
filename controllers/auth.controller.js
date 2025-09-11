@@ -224,7 +224,7 @@ const handleLogin = (req, res, next) => {
           expiresIn: "24h",
         });
 
-        console.log('User logged in:', user.fullname);
+        // console.log('User logged in:', user.fullname);
 
         return res.status(200).json({
           isSuccess: true,
