@@ -2,6 +2,6 @@
     service : 'gmail',
     auth : {
         user: 'testonenew31@gmail.com',
-        pass: 'ebty yizs ozbj zzis',
+        pass: 'lyaf geke ztxv rkez',
     }
  }

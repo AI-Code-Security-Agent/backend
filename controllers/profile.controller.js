@@ -89,7 +89,7 @@ const handleUpdatePassword = async (req, res) => {
 
         res.status(200).json({
             isSuccess: true,
-            message: "Password updated successfully",
+            message: "Password updated successfully!",
             content: null,
         });
     } catch (err) {

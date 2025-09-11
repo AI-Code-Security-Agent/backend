@@ -192,6 +192,8 @@ const getHTMLEmail = (pass) => {
 
 const handleCreateUserPostRequest = async (req, res) => {
   try {
+
+    // console.log("Request Body :", req.body);
     const { fullname, email, gitAccessToken } = req.body;
     const existingEmail = await User.findOne({ email: email });
 
