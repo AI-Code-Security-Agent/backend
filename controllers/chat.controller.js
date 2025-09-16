@@ -313,6 +313,7 @@ const sendMessageToLLM = async (req, res) => {
       message_count: totalMessages,
       response: assistantMessage.content,
       session_id: session_id,
+      message_id: assistantMessage._id,
     });
   } catch (err) {
     console.error("Send Message Error:", err.message);
@@ -403,8 +404,7 @@ const sendMessageToLLMForDemo = async (req, res) => {
       message_count: totalMessages,
       response: assistantMessage.content,
       session_id: session_id,
-      max_tokens,
-      temperature,
+      message_id: assistantMessage._id,
     });
     // console.log("FastAPI response for demo:", assistantReply);
 
@@ -446,7 +446,7 @@ const updateMessageFeedback = async (req, res ) => {
     res.status(200).json({ message: "Feedback updated successfully" });
 
   } catch (error) {
-    console.error("Update Feedback Error:", error.message);
+    console
     res.status(500).json({ error: "Error updating feedback", detail: error.message });
   }
 }
