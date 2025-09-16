@@ -11,6 +11,7 @@ router.get("/health_llm", authenticateToken, chatController.llmHealthCheck);
 router.post("/sessions", authenticateToken, chatController.createChatSession);
 router.get("/sessions", authenticateToken, chatController.getSessionsByUser);
 router.get("/sessions/:sessionId/messages", authenticateToken, chatController.getSessionMessages);
+router.get("/sessions/:sessionId/messages/demo", chatController.getDemoMessages);
 router.post("/delete_session/:sessionId", authenticateToken, chatController.deleteChatSession);
 
 // LLM

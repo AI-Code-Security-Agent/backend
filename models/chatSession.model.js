@@ -8,12 +8,16 @@ const ChatSessionSchema = new Schema({
   },
   title: {
     type: String,
-    default: "New Chat"
+    default: "New Chat",
+  },
+  chat_count: {
+    type: Number,
+    default: 0,
   },
   createdAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
 const ChatSessionModel = mongoose.model("chat_session", ChatSessionSchema);

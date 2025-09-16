@@ -1,7 +1,9 @@
 const ChatSession = require("../models/chatSession.model");
 const ChatMessage = require("../models/chatMessage.model");
+const DemoSession = require("../models/DemoSession.model");
 const axios = require("axios");
 const API_CONFIG = require("../config/api.config");
+const mongoose = require("mongoose");
 
 const llmBaseUrl = API_CONFIG.LLM_API.BASE_URL;
 const ragBaseUrl = API_CONFIG.RAG_API.BASE_URL;
@@ -75,16 +77,12 @@ const ragQuery = async (req, res) => {
     res.status(200).json(response.data);
   } catch (e) {
     const status = e.response?.status || 500;
-    return res
-      .status(status)
-      .json({
-        error: "RAG query failed",
-        detail: e.response?.data || e.message,
-      });
+    return res.status(status).json({
+      error: "RAG query failed",
+      detail: e.response?.data || e.message,
+    });
   }
 };
-
-
 
 // Create new chat session
 const createChatSession = async (req, res) => {
@@ -123,12 +121,53 @@ const getSessionsByUser = async (req, res) => {
 const getSessionMessages = async (req, res) => {
   try {
     const { sessionId } = req.params;
+
+    const session = await ChatSession.findById(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: "Chat Session not found" });
+    }
     const messages = await ChatMessage.find({ session: sessionId }).sort({
       timestamp: 1,
     });
-    res.status(200).json(messages);
+
+    if (!messages) {
+      return res.status(404).json({ error: "No messages found" });
+    }
+    
+    res.status(200).json({
+      session_messages: messages,
+      totalMessages: session.chat_count, 
+    });
   } catch (err) {
     res.status(500).json({ error: "Error fetching messages" });
+  }
+};
+
+const getDemoMessages = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const session = await DemoSession.findOne({ demoSessionID: sessionId });
+
+    if (!session) {
+      return res.status(404).json({ error: "Demo Session not found" });
+    }
+
+    const messages = await ChatMessage.find({ session: sessionId }).sort({
+      timestamp: 1,
+    });
+
+    if (!messages) {
+      return res.status(404).json({ error: "No messages found" });
+    }
+
+    res.status(200).json({
+      session_messages: messages,
+      totalMessages: session.chat_count, 
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error fetching messages in demo session" });
   }
 };
 
@@ -165,7 +204,6 @@ const deleteChatSession = async (req, res) => {
   }
 };
 
-
 // Send message and get response from FastAPI
 const sendMessageToLLM = async (req, res) => {
   try {
@@ -178,6 +216,8 @@ const sendMessageToLLM = async (req, res) => {
     const userId = req.user._id;
     const model = "llm";
     let isNewSession = false;
+
+    console.log("session id :", session_id);
 
     // 1. If session_id is not provided, create a new session
     if (!session_id) {
@@ -262,6 +302,12 @@ const sendMessageToLLM = async (req, res) => {
       session: session_id,
     });
 
+    await ChatSession.findOneAndUpdate(
+      { _id: session_id },
+      { chat_count: totalMessages }
+    );
+
+
     // 9. Send response back
     res.status(200).json({
       message_count: totalMessages,
@@ -281,42 +327,101 @@ const sendMessageToLLM = async (req, res) => {
 
 const sendMessageToLLMForDemo = async (req, res) => {
   try {
-    let { message, max_tokens = 1000, temperature = 0.7 } = req.body;
+    let { message, session_id, max_tokens = 1000, temperature = 0.7 } = req.body;
 
     // console.log('demo session request body:', req.body);
+
+    if (!session_id) {
+      const newSession = new DemoSession({ demoSessionID: new mongoose.Types.ObjectId().toString() });
+      await newSession.save();
+      session_id = newSession.demoSessionID;
+      // console.log("Created new demo session:", session_id);
+    }else{
+      const session = await DemoSession.findOne({ demoSessionID: session_id });
+      if (!session) {
+        return res.status(404).json({
+          error: "Demo Session not found",
+          detail: "The provided session_id does not exist.",
+        });
+      }
+    }
+     
+    const existingMessages = await ChatMessage.find({
+      session: session_id,
+    }).sort({
+      timestamp: 1,
+    });
+
+     // Helper function to format messages for LLM API
+    const formatMessagesForLLM = (messages) => {
+      return messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }));
+    };
+
+    const conversationHistory = formatMessagesForLLM(existingMessages);
 
     const fastApiResponse = await axios.post(
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
       {
         message,
+        session_id: session_id,
+        // messages: conversationHistory,
         max_tokens,
         temperature,
       }
     );
 
     const assistantReply = fastApiResponse.data.response;
-    // console.log("FastAPI response for demo:", assistantReply);
+
+    const userMessage = await ChatMessage.create({
+      session: session_id,
+      role: "user",
+      content: message,
+      model: "llm_demo",
+    });
+
+    const assistantMessage = await ChatMessage.create({
+      session:  session_id,
+      role: "assistant",
+      content: assistantReply,
+      model: "llm_demo",
+    });
+
+     const totalMessages = await ChatMessage.countDocuments({
+      session: session_id,
+    });
+
+    await DemoSession.findOneAndUpdate(
+      { demoSessionID: session_id },
+      { chat_count: totalMessages }
+    );
 
     res.status(200).json({
-      response: assistantReply,
-      session_id: "00000",
+      message_count: totalMessages,
+      response: assistantMessage.content,
+      session_id: session_id,
+      max_tokens,
+      temperature,
     });
+    // console.log("FastAPI response for demo:", assistantReply);
+
+   
+
   } catch (err) {
     console.error("Send Message Error in Demo session:", err.message);
     if (err.response) {
-      console.error("FastAPI Error Response:", err.response.data);
+      console.error("FastAPI Error Response(Demo Mode):", err.response.data);
     }
     res
       .status(500)
-      .json({ error: "Error processing message", detail: err.message });
+      .json({ error: "Error processing message(Demo Mode)", detail: err.message });
   }
 };
 
-
-
-
-
-// apis for streaming responses 
+// apis for streaming responses
 
 const ragQueryStream = async (req, res) => {
   try {
@@ -374,12 +479,10 @@ const sendMessageToLLMStream = async (req, res) => {
     } else {
       const session = await ChatSession.findById(session_id);
       if (!session) {
-        return res
-          .status(404)
-          .json({
-            error: "Session not found",
-            detail: "The provided session_id does not exist.",
-          });
+        return res.status(404).json({
+          error: "Session not found",
+          detail: "The provided session_id does not exist.",
+        });
       }
     }
 
@@ -582,4 +685,5 @@ module.exports = {
   ragQuery,
   ragQueryStream,
   sendMessageToLLMForDemo,
+  getDemoMessages
 };

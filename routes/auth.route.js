@@ -47,7 +47,7 @@ router.post("/logout", (req, res, next) => {
       if (err) {
         console.log("Session destruction error:", err);
       }
-      res.clearCookie("connect.sid", { path: "/" });
+      // res.clearCookie("connect.sid", { path: "/" });
 
       res.json({
         isSuccess: true,
