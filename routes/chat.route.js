@@ -14,11 +14,12 @@ router.get("/sessions/:sessionId/messages", authenticateToken, chatController.ge
 router.get("/sessions/:sessionId/messages/demo", chatController.getDemoMessages);
 router.post("/delete_session/:sessionId", authenticateToken, chatController.deleteChatSession);
 
-// LLM
+// LLM Message
 router.post("/messages_llm", authenticateToken, chatController.sendMessageToLLM);
 router.post("/demo/messages_llm", chatController.sendMessageToLLMForDemo);
 router.post("/stream", authenticateToken, chatController.sendMessageToLLMStream);
 router.post("/demo/stream", chatController.sendMessageToDemoLLMStream);
+router.post("/messages/feedback/:messageId", chatController.updateMessageFeedback);
 
 // RAG
 router.post("/query", authenticateToken, chatController.ragQuery);

@@ -421,6 +421,37 @@ const sendMessageToLLMForDemo = async (req, res) => {
   }
 };
 
+// Add feedback for messages
+const updateMessageFeedback = async (req, res ) => {
+  try {
+    const { messageId } = req.params;
+    const { feedback } = req.body; // 'like' or 'dislike'
+
+    console.log("Feedback received:", feedback);
+
+    const message = await ChatMessage.findById(messageId);
+
+    if(!message){
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    if (!["like", "dislike",null].includes(feedback)) {
+      return res.status(400).json({ error: "Invalid feedback value" });
+    }
+
+    await ChatMessage.findByIdAndUpdate(
+      messageId,
+      { feedback },
+      { new: true }
+    );
+
+    res.status(200).json({ message: "Feedback updated successfully" });
+
+  } catch (error) {
+    res.status(500).json({ error: "Error updating feedback", detail: error.message });
+  }
+}
+
 // apis for streaming responses
 
 const ragQueryStream = async (req, res) => {
@@ -685,5 +716,6 @@ module.exports = {
   ragQuery,
   ragQueryStream,
   sendMessageToLLMForDemo,
-  getDemoMessages
+  getDemoMessages,
+  updateMessageFeedback
 };
