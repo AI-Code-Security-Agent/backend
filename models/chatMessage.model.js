@@ -19,6 +19,11 @@ const ChatMessageSchema = new Schema({
     type: String, // 'rag' or 'llm'
     default: 'llm'
   },
+  feedback: {
+    type: String,
+    enum: ["like", "dislike", null],
+    default: null
+  },
   timestamp: {
     type: Date,
     default: Date.now
