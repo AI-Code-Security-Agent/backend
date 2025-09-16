@@ -50,6 +50,8 @@ module.exports = function (passport) {
             email: profile.emails[0].value,
             fullname: profile.displayName,
             password: null, // no password for Google login
+            role: "user",
+            gitAccessToken: null,
           });
 
           await newUser.save();

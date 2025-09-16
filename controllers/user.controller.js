@@ -195,6 +195,23 @@ const handleCreateUserPostRequest = async (req, res) => {
 
     // console.log("Request Body :", req.body);
     const { fullname, email, gitAccessToken } = req.body;
+    const role = req.query.role || "user";
+    let userRole;
+    if(role == 'admin'){
+      userRole = "admin"
+    }else{
+      userRole="user"
+    }
+
+    if (!fullname || !email) {
+      return res.status(200).json({
+        isSuccess: false,
+        message: "Please provide all required fields.",
+        content: null,
+      });
+    }
+    console.log('query parameter :', role)
+    console.log('role :',userRole)
     const existingEmail = await User.findOne({ email: email });
 
     if (existingEmail) {
@@ -224,6 +241,7 @@ const handleCreateUserPostRequest = async (req, res) => {
       email,
       password: hashedPassword,
       gitAccessToken: gitAccessToken,
+      role: userRole,
     });
 
     console.log("New User :", newUser);

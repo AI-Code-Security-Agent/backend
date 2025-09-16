@@ -425,9 +425,7 @@ const sendMessageToLLMForDemo = async (req, res) => {
 const updateMessageFeedback = async (req, res ) => {
   try {
     const { messageId } = req.params;
-    const { feedback } = req.body; // 'like' or 'dislike'
-
-    console.log("Feedback received:", feedback);
+    const { feedback } = req.body; // 'like' ,'dislike' or null
 
     const message = await ChatMessage.findById(messageId);
 
@@ -448,6 +446,7 @@ const updateMessageFeedback = async (req, res ) => {
     res.status(200).json({ message: "Feedback updated successfully" });
 
   } catch (error) {
+    console.error("Update Feedback Error:", error.message);
     res.status(500).json({ error: "Error updating feedback", detail: error.message });
   }
 }
