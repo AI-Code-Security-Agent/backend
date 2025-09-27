@@ -204,13 +204,12 @@ const deleteChatSession = async (req, res) => {
   }
 };
 
-// Send message and get response from FastAPI
+// Updated sendMessageToLLM function with max_tokens removed
 const sendMessageToLLM = async (req, res) => {
   try {
     let {
       session_id,
       message,
-      max_tokens = 1000,
       temperature = 0.7,
     } = req.body;
     const userId = req.user._id;
@@ -242,21 +241,12 @@ const sendMessageToLLM = async (req, res) => {
       timestamp: 1,
     });
 
-    // Helper function to format messages for LLM API
-    const formatMessagesForLLM = (messages) => {
-      return messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp,
-      }));
-    };
-
-    // 3. Format existing messages for LLM API
-    const conversationHistory = formatMessagesForLLM(existingMessages);
-
-    // console.log(
-    //   `Sending ${conversationHistory.length} previous messages + 1 new message to LLM`
-    // );
+    // 3. Format existing messages for FastAPI
+    const conversationHistory = existingMessages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+    }));
 
     // 4. If this is a new session, update the title based on first message
     if (isNewSession) {
@@ -267,14 +257,13 @@ const sendMessageToLLM = async (req, res) => {
       });
     }
 
-    // 5. Send to FastAPI with conversation history
+    // 5. Send to FastAPI with conversation history (removed max_tokens)
     const fastApiResponse = await axios.post(
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
       {
         message,
         session_id: session_id,
-        // messages: conversationHistory,
-        max_tokens,
+        messages: conversationHistory, // Include conversation history
         temperature,
       }
     );
@@ -307,7 +296,6 @@ const sendMessageToLLM = async (req, res) => {
       { chat_count: totalMessages }
     );
 
-
     // 9. Send response back
     res.status(200).json({
       message_count: totalMessages,
@@ -326,9 +314,153 @@ const sendMessageToLLM = async (req, res) => {
   }
 };
 
+// Updated streaming function with max_tokens removed
+const sendMessageToLLMStream = async (req, res) => {
+  try {
+    let {
+      session_id,
+      message,
+      temperature = 0.7,
+    } = req.body;
+    const userId = req.user._id;
+
+    // ---------- Ensure session exists ----------
+    if (!session_id) {
+      const newSession = await ChatSession.create({ user: userId });
+      session_id = newSession._id.toString();
+      const title = (message || "New Chat").slice(0, 50) || "New Chat";
+      await ChatSession.findByIdAndUpdate(session_id, { title });
+    } else {
+      const session = await ChatSession.findById(session_id);
+      if (!session) {
+        return res.status(404).json({
+          error: "Session not found",
+          detail: "The provided session_id does not exist.",
+        });
+      }
+    }
+
+    // ---------- Get conversation history ----------
+    const existingMessages = await ChatMessage.find({
+      session: session_id,
+    }).sort({
+      timestamp: 1,
+    });
+
+    // Format conversation history for FastAPI
+    const conversationHistory = existingMessages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+    }));
+
+    // ---------- Save user message immediately ----------
+    await ChatMessage.create({
+      session: session_id,
+      role: "user",
+      content: message,
+      model: "llm",
+    });
+
+    // ---------- Prepare request to FastAPI streaming endpoint (removed max_tokens) ----------
+    const fastapiUrl = `${llmBaseUrl}${
+      API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"
+    }`;
+
+    const response = await axios.post(
+      fastapiUrl,
+      { 
+        session_id, 
+        message, 
+        messages: conversationHistory, // Include conversation history
+        temperature 
+      },
+      { responseType: "stream" }
+    );
+
+    // ---------- Set SSE headers ----------
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    let assistantBuffer = "";
+
+    // ---------- STREAM HANDLER ----------
+    response.data.on("data", (chunk) => {
+      const str = chunk.toString();
+      // Split into individual SSE events
+      str.split("\n\n").forEach((evt) => {
+        if (!evt.trim()) return;
+
+        // ---------- Handle token events ----------
+        if (evt.startsWith("event: token")) {
+          const line = evt.split("\n").find((l) => l.startsWith("data: "));
+          if (line) {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.token) assistantBuffer += payload.token;
+          }
+        }
+
+        // ---------- Handle meta events ----------
+        else if (evt.startsWith("event: meta")) {
+          const line = evt.split("\n").find((l) => l.startsWith("data: "));
+          if (line) {
+            const meta = JSON.parse(line.slice(6));
+            // Send meta to frontend immediately
+            res.write(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`);
+          }
+        }
+      });
+
+      // Write raw chunk to frontend
+      res.write(str);
+    });
+
+    // ---------- End of stream ----------
+    response.data.on("end", async () => {
+      if (assistantBuffer.trim()) {
+        await ChatMessage.create({
+          session: session_id,
+          role: "assistant",
+          content: assistantBuffer,
+          model: "llm",
+        });
+
+        // Update message count
+        const totalMessages = await ChatMessage.countDocuments({
+          session: session_id,
+        });
+
+        await ChatSession.findOneAndUpdate(
+          { _id: session_id },
+          { chat_count: totalMessages }
+        );
+      }
+
+      res.write(`event: meta\ndata: ${JSON.stringify({ session_id })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+
+    response.data.on("error", (e) => {
+      res.write(
+        `event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`
+      );
+      res.end();
+    });
+  } catch (err) {
+    console.error("Stream proxy error:", err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Streaming failed", detail: err.message });
+    } else {
+      res.end();
+    }
+  }
+};
+
 const sendMessageToLLMForDemo = async (req, res) => {
   try {
-    let { message, session_id, max_tokens = 1000, temperature = 0.7 } = req.body;
+    let { message, session_id, temperature = 0.7 } = req.body;
 
     // console.log('demo session request body:', req.body);
 
@@ -364,13 +496,13 @@ const sendMessageToLLMForDemo = async (req, res) => {
 
     const conversationHistory = formatMessagesForLLM(existingMessages);
 
+    // Removed max_tokens from demo function
     const fastApiResponse = await axios.post(
       `${llmBaseUrl}${API_CONFIG.LLM_API.ENDPOINTS.CHAT}`,
       {
         message,
         session_id: session_id,
         // messages: conversationHistory,
-        max_tokens,
         temperature,
       }
     );
@@ -489,129 +621,11 @@ const ragQueryStream = async (req, res) => {
   }
 };
 
-const sendMessageToLLMStream = async (req, res) => {
-  try {
-    let {
-      session_id,
-      message,
-      max_tokens = 1000,
-      temperature = 0.7,
-      messages,
-    } = req.body;
-    const userId = req.user._id;
-
-    // ---------- Ensure session exists ----------
-    if (!session_id) {
-      const newSession = await ChatSession.create({ user: userId });
-      session_id = newSession._id.toString();
-      const title = (message || "New Chat").slice(0, 50) || "New Chat";
-      await ChatSession.findByIdAndUpdate(session_id, { title });
-    } else {
-      const session = await ChatSession.findById(session_id);
-      if (!session) {
-        return res.status(404).json({
-          error: "Session not found",
-          detail: "The provided session_id does not exist.",
-        });
-      }
-    }
-
-    // ---------- Save user message immediately ----------
-    await ChatMessage.create({
-      session: session_id,
-      role: "user",
-      content: message,
-      model: "llm",
-    });
-
-    // ---------- Prepare request to FastAPI streaming endpoint ----------
-    const fastapiUrl = `${llmBaseUrl}${
-      API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"
-    }`;
-
-    const response = await axios.post(
-      fastapiUrl,
-      { session_id, message, messages, max_tokens, temperature },
-      { responseType: "stream" }
-    );
-
-    // ---------- Set SSE headers ----------
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-
-    let assistantBuffer = "";
-
-    // ---------- STREAM HANDLER ----------
-    response.data.on("data", (chunk) => {
-      const str = chunk.toString();
-      // Split into individual SSE events
-      str.split("\n\n").forEach((evt) => {
-        if (!evt.trim()) return;
-
-        // ---------- Handle token events ----------
-        if (evt.startsWith("event: token")) {
-          const line = evt.split("\n").find((l) => l.startsWith("data: "));
-          if (line) {
-            const payload = JSON.parse(line.slice(6));
-            if (payload.token) assistantBuffer += payload.token;
-          }
-        }
-
-        // ---------- NEW: Handle meta events ----------
-        else if (evt.startsWith("event: meta")) {
-          const line = evt.split("\n").find((l) => l.startsWith("data: "));
-          if (line) {
-            const meta = JSON.parse(line.slice(6));
-            // Send meta to frontend immediately (so onDone works)
-            res.write(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`);
-          }
-        }
-      });
-
-      // Write raw chunk to frontend as usual
-      res.write(str);
-    });
-
-    // ---------- End of stream ----------
-    response.data.on("end", async () => {
-      if (assistantBuffer.trim()) {
-        await ChatMessage.create({
-          session: session_id,
-          role: "assistant",
-          content: assistantBuffer,
-          model: "llm",
-        });
-      }
-
-      // ---------- Ensure final meta if not already sent ----------
-      res.write(`event: meta\ndata: ${JSON.stringify({ session_id })}\n\n`);
-      res.write("data: [DONE]\n\n");
-      res.end();
-    });
-
-    response.data.on("error", (e) => {
-      res.write(
-        `event: error\ndata: ${JSON.stringify({ detail: e.message })}\n\n`
-      );
-      res.end();
-    });
-  } catch (err) {
-    console.error("Stream proxy error:", err.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Streaming failed", detail: err.message });
-    } else {
-      res.end();
-    }
-  }
-};
-
 const sendMessageToDemoLLMStream = async (req, res) => {
   try {
     let {
       session_id,
       message,
-      max_tokens = 1000,
       temperature = 0.7,
       messages,
     } = req.body;
@@ -634,14 +648,14 @@ const sendMessageToDemoLLMStream = async (req, res) => {
 
     // Save user message immediately (so history exists for future requests)
 
-    // Prepare request to FastAPI streaming endpoint
+    // Prepare request to FastAPI streaming endpoint (removed max_tokens)
     const fastapiUrl = `${llmBaseUrl}${
       API_CONFIG.LLM_API.ENDPOINTS.CHAT_STREAM || "/chat/stream"
     }`;
 
     const response = await axios.post(
       fastapiUrl,
-      { message, messages, max_tokens, temperature },
+      { message, messages, temperature },
       { responseType: "stream" }
     );
 
@@ -678,7 +692,7 @@ const sendMessageToDemoLLMStream = async (req, res) => {
       //     model: "llm",
       //   });
       // }
-      // Ensure we send a meta event if FastAPI didn’t:
+      // Ensure we send a meta event if FastAPI didn't:
       // res.write(`event: meta\ndata: ${JSON.stringify({ session_id })}\n\n`);
       // console.log("FastAPI stream ended. Assistant buffer:", assistantBuffer);
       res.write("data: [DONE]\n\n");
