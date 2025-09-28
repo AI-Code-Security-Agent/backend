@@ -13,6 +13,7 @@ router.get("/sessions", authenticateToken, chatController.getSessionsByUser);
 router.get("/sessions/:sessionId/messages", authenticateToken, chatController.getSessionMessages);
 router.get("/sessions/:sessionId/messages/demo", chatController.getDemoMessages);
 router.post("/delete_session/:sessionId", authenticateToken, chatController.deleteChatSession);
+router.post("/sessions/:sessionId/regenerate-title", authenticateToken, chatController.regenerateChatTitle);
 
 // LLM Message
 router.post("/messages_llm", authenticateToken, chatController.sendMessageToLLM);
