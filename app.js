@@ -12,8 +12,10 @@ const MONGO_URI = config.MongoURI;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 
-app.use(bodyParser.json());
-
+// app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "20mb" }));
+app.use(bodyParser.urlencoded({ limit: "20mb", extended: true }));
+// CORS configuration
 app.use( 
   cors({
     origin: FRONTEND_URL,
@@ -22,6 +24,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 
 // Middleware to parse URL-encoded data
 app.use(express.urlencoded({ extended: true }));

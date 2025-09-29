@@ -22,6 +22,10 @@ const UserSchema = new Schema({
   gitAccessToken: {
     type: String,
   },
+  profilePicture: {
+    type: String,
+    default: null,
+  },
 });
 
 const UserModel = mongoose.model("user", UserSchema);
