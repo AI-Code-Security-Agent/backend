@@ -8,6 +8,11 @@ const mongoose = require("mongoose");
 const llmBaseUrl = API_CONFIG.LLM_API.BASE_URL;
 const ragBaseUrl = API_CONFIG.RAG_API.BASE_URL;
 
+async function getConversationHistory(sessionId) {
+  const existing = await ChatMessage.find({ session: sessionId }).sort({ timestamp: 1 });
+  return existing.map(m => ({ role: m.role, content: m.content }));
+}
+
 // Configure axios defaults with better timeout and retry logic
 const createAxiosInstance = (baseURL, timeout = 30000) => {
   const instance = axios.create({
@@ -41,7 +46,7 @@ const createAxiosInstance = (baseURL, timeout = 30000) => {
 };
 
 const llmAxios = createAxiosInstance(llmBaseUrl, 60000); // 60 second timeout for LLM
-const ragAxios = createAxiosInstance(ragBaseUrl, 30000); // 30 second timeout for RAG
+const ragAxios = createAxiosInstance(ragBaseUrl, 60000); // 30 second timeout for RAG
 
 // Health check for LLM API
 const llmHealthCheck = async (req, res) => {
@@ -107,11 +112,69 @@ const ragHealthCheck = async (req, res) => {
 
 const ragQuery = async (req, res) => {
   try {
-    const response = await ragAxios.post(
-      API_CONFIG.RAG_API.ENDPOINTS.QUERY,
-      req.body
-    );
-    res.status(200).json(response.data);
+    const userId = req.user._id;
+    console.log("RAG Query by user:", userId);
+    let { question, k, relevance_threshold, code_focused, session_id } = req.body;
+
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: "Question is required" });
+    }
+
+    // Ensure session (RAG) exists or create with generated title
+    if (!session_id) {
+      const title = await generateChatTitle(question).catch(() => createFallbackTitle(question));
+      const newSession = await ChatSession.create({ user: userId, title, model: "rag" });
+      session_id = newSession._id.toString();
+    } else {
+      const s = await ChatSession.findById(session_id);
+      if (!s) return res.status(404).json({ error: "Session not found" });
+    }
+
+    // Get chat history
+    const messages = await getConversationHistory(session_id);
+
+    // Save user message immediately
+    const userMsg = await ChatMessage.create({
+      session: session_id,
+      role: "user",
+      content: question,
+      model: "rag",
+    });
+
+    // Call RAG FastAPI with history
+    const payload = {
+      question,
+      k,
+      relevance_threshold,
+      code_focused,
+      session_id,
+      messages, // send prior messages for context
+    };
+
+    const upstream = await ragAxios.post(API_CONFIG.RAG_API.ENDPOINTS.QUERY, payload);
+    const { response, sources } = upstream.data || {};
+
+    // Save assistant message
+    const assistMsg = await ChatMessage.create({
+      session: session_id,
+      role: "assistant",
+      content: response || "",
+      model: "rag",
+      sources: Array.isArray(sources) ? sources : undefined, // optional if schema allows
+    });
+
+    // Update chat count
+    const total = await ChatMessage.countDocuments({ session: session_id });
+    await ChatSession.findByIdAndUpdate(session_id, { chat_count: total });
+
+    // Return aligned shape with LLM (so frontend can reuse)
+    return res.status(200).json({
+      response: response || "",
+      sources: sources || [],
+      session_id,
+      message_count: total,
+      message_id: assistMsg._id,
+    });
   } catch (e) {
     console.error("RAG Query Error:", e.message);
     const status = e.response?.status || 500;
@@ -843,38 +906,103 @@ const updateMessageFeedback = async (req, res) => {
 // APIs for streaming responses
 const ragQueryStream = async (req, res) => {
   try {
-    const upstream = await ragAxios.post(
-      API_CONFIG.RAG_API.ENDPOINTS.QUERY_STREAM,
-      req.body,
-      { responseType: "stream", timeout: 0 }
-    );
+    const userId = req.user._id;
+    let { question, k, relevance_threshold, code_focused, session_id } = req.body;
 
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: "Question is required" });
+    }
+
+    // Ensure session
+    if (!session_id) {
+      const title = await generateChatTitle(question).catch(() => createFallbackTitle(question));
+      const newSession = await ChatSession.create({ user: userId, title, model: "rag" });
+      session_id = newSession._id.toString();
+    } else {
+      const s = await ChatSession.findById(session_id);
+      if (!s) return res.status(404).json({ error: "Session not found" });
+    }
+
+    // Load prior history
+    const messages = await getConversationHistory(session_id);
+
+    // Save user message immediately
+    await ChatMessage.create({
+      session: session_id,
+      role: "user",
+      content: question,
+      model: "rag",
+    });
+
+    // Prepare upstream payload
+    const payload = { question, k, relevance_threshold, code_focused, session_id, messages };
+
+    // Fire upstream stream
+    const upstream = await ragAxios.post(API_CONFIG.RAG_API.ENDPOINTS.QUERY_STREAM, payload, {
+      responseType: "stream",
+      timeout: 0,
+    });
+
+    // SSE headers
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
+    let assistantBuffer = "";
+
     upstream.data.on("data", (chunk) => {
-      res.write(chunk);
+      const str = chunk.toString();
+
+      // collect tokens for persistence
+      str.split("\n\n").forEach((evt) => {
+        if (!evt.trim()) return;
+        if (evt.startsWith("event: token")) {
+          const line = evt.split("\n").find((l) => l.startsWith("data: "));
+          if (line) {
+            try {
+              const payload = JSON.parse(line.slice(6));
+              if (payload.token) assistantBuffer += payload.token;
+            } catch {}
+          }
+        }
+      });
+
+      // proxy through
+      res.write(str);
     });
-    
-    upstream.data.on("end", () => {
-      res.write("data: [DONE]\n\n");
-      res.end();
+
+    upstream.data.on("end", async () => {
+      try {
+        if (assistantBuffer.trim()) {
+          await ChatMessage.create({
+            session: session_id,
+            role: "assistant",
+            content: assistantBuffer,
+            model: "rag",
+          });
+          const total = await ChatMessage.countDocuments({ session: session_id });
+          await ChatSession.findByIdAndUpdate(session_id, { chat_count: total });
+
+          // let client know session meta
+          res.write(`event: meta\ndata: ${JSON.stringify({ session_id, message_count: total })}\n\n`);
+        }
+        res.write("data: [DONE]\n\n");
+        res.end();
+      } catch (err) {
+        res.write(`event: error\ndata: ${JSON.stringify({ detail: "Failed to save RAG message" })}\n\n`);
+        res.end();
+      }
     });
-    
+
     upstream.data.on("error", (err) => {
-      res.write(
-        `event: error\ndata: ${JSON.stringify({ detail: err.message })}\n\n`
-      );
+      res.write(`event: error\ndata: ${JSON.stringify({ detail: err.message })}\n\n`);
       res.end();
     });
+
   } catch (e) {
     console.error("RAG Stream Error:", e.message);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: "RAG stream failed", 
-        detail: e.message 
-      });
+      res.status(500).json({ error: "RAG stream failed", detail: e.message });
     } else {
       res.end();
     }
