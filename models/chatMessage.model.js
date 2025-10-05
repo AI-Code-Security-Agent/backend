@@ -24,6 +24,7 @@ const ChatMessageSchema = new Schema({
     enum: ["like", "dislike", null],
     default: null
   },
+  sources: { type: Array, default: [] },
   timestamp: {
     type: Date,
     default: Date.now
