@@ -225,12 +225,20 @@ const handleLogin = (req, res, next) => {
         });
 
         // console.log('User logged in:', user.fullname);
+        const safeUser = {
+          _id: user._id,
+          fullname: user.fullname,
+          email: user.email,
+          role: user.role,
+          profilePicture: user.profilePicture,
+        };
 
         return res.status(200).json({
           isSuccess: true,
           message: "Logged in Successfully!",
           accessToken: accessToken,
           username: user.fullname,
+          user:safeUser
         });
       } catch (err) {
         console.error("Error generating JWT :", err);

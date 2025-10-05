@@ -6,7 +6,7 @@ const handleGetProfileData = async (req, res) => {
   try {
     const userId = req.user._id;
     // console.log("User ID :", userId);
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select("-password -gitAccessToken");
 
     if (!user) {
       return res.status(404).json({
@@ -42,7 +42,7 @@ const handleUpdatePersonalData = async (req, res) => {
       { email },
       { fullname, email },
       { new: true }
-    );
+    ).select("-password -gitAccessToken");
 
     if (!user) {
       return res.status(404).json({
@@ -102,29 +102,17 @@ const handleUpdatePassword = async (req, res) => {
     }
 };
 
-// app.post("/api/profile/picture", async (req, res) => {
-//   try {
-//     const { profilePicture } = req.body; // base64 string
-
-//     // Save in MongoDB
-//     await User.findByIdAndUpdate(req.user.id, { profilePicture });
-
-//     res.json({ profilePicture });
-//   } catch (err) {
-//     res.status(500).json({ message: "Failed to save profile picture" });
-//   }
-// });
-
 
 const handleProfilePictureUpload = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { profilePicture } = req.body; // Assuming base64 string
+    const { profilePicture } = req.body;
     const user = await User.findByIdAndUpdate(
       userId,
       { profilePicture },
       { new: true }
-    );
+    ).select("-password -gitAccessToken");
+
     if (!user) {
       return res.status(404).json({
         isSuccess: false,
@@ -132,6 +120,7 @@ const handleProfilePictureUpload = async (req, res) => {
         content: null,
       });
     } 
+    // console.log("Updated User :", user);
 
     res.status(200).json({
       isSuccess: true,

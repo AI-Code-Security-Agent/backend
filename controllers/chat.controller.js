@@ -338,6 +338,13 @@ const sendMessageToLLM = async (req, res) => {
       }
     }
 
+    const userMessage = await ChatMessage.create({
+        session: session_id,
+        role: "user",
+        content: message,
+        model: model,
+      });
+
     // 2. Get existing conversation history
     const existingMessages = await ChatMessage.find({
       session: session_id,
@@ -417,12 +424,7 @@ const sendMessageToLLM = async (req, res) => {
 
     // 4. Save messages to database
     try {
-      const userMessage = await ChatMessage.create({
-        session: session_id,
-        role: "user",
-        content: message,
-        model: model,
-      });
+      
 
       const assistantMessage = await ChatMessage.create({
         session: session_id,
