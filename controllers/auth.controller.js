@@ -12,7 +12,6 @@ const config = require(path.join(__dirname, "..", "config", "config.json"))[
 ];
 const emailService = require("../email");
 
-
 const getHTMLEmail = (link) => {
   return `<!DOCTYPE html>
     <html lang="en-US">
@@ -237,8 +236,7 @@ const handleLogin = (req, res, next) => {
           isSuccess: true,
           message: "Logged in Successfully!",
           accessToken: accessToken,
-          username: user.fullname,
-          user:safeUser
+          user: safeUser,
         });
       } catch (err) {
         console.error("Error generating JWT :", err);
@@ -375,7 +373,42 @@ const handleResetPasswordPostRequest = async (req, res) => {
         user: user,
       },
     });
-    
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      isSuccess: false,
+      message: "Internal server error",
+      content: null,
+    });
+  }
+};
+
+const handleGetAuthUserDetails = async (req, res) => {
+  try {
+
+    if (!req.user) {
+      return res.status(401).json({
+        isSuccess: false,
+        message: "Unauthorized",
+        content: null,
+      });
+    }
+    const user = await User.findById(req.user._id).select("-password -gitAccessToken");
+    if (!user) {
+      return res.status(404).json({
+        isSuccess: false,
+        message: "User not found",
+        content: null,
+      });
+    }
+    res.status(200).json({
+      isSuccess: true,
+      message: "User details fetched successfully",
+      content: {
+        user: user,
+      },
+    });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -391,4 +424,5 @@ module.exports = {
   handleForgotPasswordPostRequest,
   handleResetPasswordVerificationGetRequest,
   handleResetPasswordPostRequest,
+  handleGetAuthUserDetails
 };

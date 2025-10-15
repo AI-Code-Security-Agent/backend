@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require("../controllers/auth.controller");
 const jwt = require("jsonwebtoken"); // <- add this
 const passport = require("passport");
+const {authenticateToken} = require('../auth/authToken')
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 // Start Google login
@@ -29,8 +30,6 @@ router.get(
 
     const redirectUrl = `${FRONTEND_URL}/login?accessToken=${encodeURIComponent(
       token
-    )}&username=${encodeURIComponent(
-      req.user.fullname || req.user.name || ""
     )}`;
     res.redirect(redirectUrl);
   }
@@ -67,5 +66,7 @@ router.get(
   authController.handleResetPasswordVerificationGetRequest
 );
 router.post("/resetPassword", authController.handleResetPasswordPostRequest);
+
+router.get("/auth-user", authenticateToken, authController.handleGetAuthUserDetails);
 
 module.exports = router;
