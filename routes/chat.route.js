@@ -17,6 +17,7 @@ router.post("/sessions/:sessionId/regenerate-title", authenticateToken, chatCont
 
 // LLM Message
 router.post("/messages_llm", authenticateToken, chatController.sendMessageToLLM);
+router.post("/edit_message", authenticateToken, chatController.editMessageToLLM);
 router.post("/demo/messages_llm", chatController.sendMessageToLLMForDemo);
 router.post("/stream", authenticateToken, chatController.sendMessageToLLMStream);
 router.post("/demo/stream", chatController.sendMessageToDemoLLMStream);
@@ -28,5 +29,5 @@ router.post("/query/stream", authenticateToken, chatController.ragQueryStream);
 
 module.exports = router;
 
-
+  
     

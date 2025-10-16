@@ -367,7 +367,7 @@ const sendMessageToLLM = async (req, res) => {
     const model = "llm";
     let isNewSession = false;
 
-    console.log("Processing message for session:", session_id || "new session");
+    // console.log("Processing message for session:", session_id || "new session");
 
     // 1. Handle session creation/validation
     if (!session_id) {
@@ -1090,6 +1090,119 @@ const sendMessageToDemoLLMStream = async (req, res) => {
   }
 };
 
+const editMessageToLLM = async (req, res) => {
+  try {
+    const { messageId, newContent, temperature = 0.7 } = req.body;
+    const userId = req.user._id;
+    const model = "llm";
+
+  
+    if (!messageId || !newContent?.trim()) {
+      return res.status(400).json({
+        error: "Invalid input",
+        detail: "messageId and newContent are required.",
+      });
+    }
+
+    // 🧩 2. Find the original message
+    const originalMessage = await ChatMessage.findById(messageId);
+    if (!originalMessage) {
+      return res.status(404).json({
+        error: "Message not found",
+        detail: "The message you're trying to edit does not exist.",
+      });
+    }
+
+    // 🧩 3. Get session info
+    const session_id = originalMessage.session;
+    const session = await ChatSession.findById(session_id);
+    if (!session) {
+      return res.status(404).json({
+        error: "Session not found",
+        detail: "The session associated with this message was not found.",
+      });
+    }
+
+    // 🧩 4. Delete all messages *after* this one (based on timestamp)
+    await ChatMessage.deleteMany({
+      session: session_id,
+      timestamp: { $gt: originalMessage.timestamp },
+    });
+
+    // 🧩 5. Update the original message with new content
+    originalMessage.content = newContent.trim();
+    originalMessage.timestamp = new Date();
+    await originalMessage.save();
+
+    // 🧩 6. Fetch updated conversation history (only up to this message)
+    const conversationHistory = await ChatMessage.find({ session: session_id })
+      .sort({ timestamp: 1 })
+      .lean();
+
+    // 🧩 7. Send the edited message to your LLM API
+    const requestPayload = {
+      message: newContent.trim(),
+      session_id,
+      messages: conversationHistory.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+      temperature,
+    };
+
+    let fastApiResponse;
+    try {
+      fastApiResponse = await llmAxios.post(
+        API_CONFIG.LLM_API.ENDPOINTS.CHAT,
+        requestPayload
+      );
+    } catch (apiError) {
+      console.error("FastAPI request failed during edit:", apiError.message);
+      return res.status(500).json({
+        error: "LLM API Error",
+        detail: apiError.response?.data?.detail || apiError.message,
+      });
+    }
+
+    const assistantReply = fastApiResponse.data?.response;
+    if (!assistantReply) {
+      return res.status(500).json({
+        error: "Empty response",
+        detail: "The AI service returned no response.",
+      });
+    }
+
+    // 🧩 8. Save the assistant's new response
+    const assistantMessage = await ChatMessage.create({
+      session: session_id,
+      role: "assistant",
+      content: assistantReply,
+      model,
+    });
+
+    // 🧩 9. Update message count
+    const totalMessages = await ChatMessage.countDocuments({ session: session_id });
+    await ChatSession.findByIdAndUpdate(session_id, { chat_count: totalMessages });
+
+    // ✅ 10. Send success response
+    res.status(200).json({
+      message_count: totalMessages,
+      response: assistantMessage.content,
+      session_id,
+      message_id: assistantMessage._id,
+    });
+
+  } catch (err) {
+    console.error("Edit Message Error:", err);
+    res.status(500).json({
+      error: "Error processing edited message",
+      detail: err.message || "Unexpected server error",
+    });
+  }
+};
+
+
+
 module.exports = {
   createChatSession,
   getSessionsByUser,
@@ -1106,4 +1219,5 @@ module.exports = {
   getDemoMessages,
   updateMessageFeedback,
   regenerateChatTitle,
+  editMessageToLLM
 };
