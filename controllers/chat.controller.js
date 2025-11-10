@@ -45,8 +45,8 @@ const createAxiosInstance = (baseURL, timeout = 30000) => {
   return instance;
 };
 
-const llmAxios = createAxiosInstance(llmBaseUrl, 60000); // 60 second timeout for LLM
-const ragAxios = createAxiosInstance(ragBaseUrl, 60000); // 30 second timeout for RAG
+const llmAxios = createAxiosInstance(llmBaseUrl, 120000); // 60 second timeout for LLM
+const ragAxios = createAxiosInstance(ragBaseUrl, 120000); // 30 second timeout for RAG
 
 // Health check for LLM API
 const llmHealthCheck = async (req, res) => {
@@ -114,69 +114,90 @@ const ragQuery = async (req, res) => {
   try {
     const userId = req.user._id;
     console.log("RAG Query by user:", userId);
-    let { question, k, relevance_threshold, code_focused, session_id } = req.body;
+    let { question, k, relevance_threshold, code_focused, session_id, selected_repositories } = req.body;
 
     if (!question || !question.trim()) {
       return res.status(400).json({ error: "Question is required" });
     }
 
-    // Ensure session (RAG) exists or create with generated title
-    if (!session_id) {
+    // Ensure MongoDB session exists or create with generated title
+    let mongoSessionId = session_id;
+    let ragSessionId = null; // RAG API will create/return its own session ID
+    
+    if (!mongoSessionId) {
       const title = await generateChatTitle(question).catch(() => createFallbackTitle(question));
       const newSession = await ChatSession.create({ user: userId, title, model: "rag" });
-      session_id = newSession._id.toString();
+      mongoSessionId = newSession._id.toString();
     } else {
-      const s = await ChatSession.findById(session_id);
+      const s = await ChatSession.findById(mongoSessionId);
       if (!s) return res.status(404).json({ error: "Session not found" });
+      
+      // Get RAG session ID from metadata if it exists
+      ragSessionId = s.metadata?.rag_session_id || null;
     }
 
-    // Get chat history
-    const messages = await getConversationHistory(session_id);
+    // Get chat history from MongoDB
+    const messages = await getConversationHistory(mongoSessionId);
 
-    // Save user message immediately
+    // Save user message immediately to MongoDB
     const userMsg = await ChatMessage.create({
-      session: session_id,
+      session: mongoSessionId,
       role: "user",
       content: question,
       model: "rag",
     });
 
-    // Call RAG FastAPI with history
+    // Call RAG API - don't pass MongoDB session_id, let RAG create its own
     const payload = {
-      question,
+      message: question,
+      user_id: userId.toString(), // Add user_id for Qdrant filtering
       k,
       relevance_threshold,
       code_focused,
-      session_id,
+      session_id: ragSessionId, // Pass RAG's session ID if we have it, otherwise null
+      selected_repositories: selected_repositories || [],
       messages, // send prior messages for context
     };
 
-    const upstream = await ragAxios.post(API_CONFIG.RAG_API.ENDPOINTS.QUERY, payload);
-    const { response, sources } = upstream.data || {};
+    console.log('Sending to RAG API:', JSON.stringify(payload, null, 2));
 
-    // Save assistant message
+    const upstream = await ragAxios.post('/api/chat/message', payload);
+    const ragResponse = upstream.data || {};
+    const { content, retrieved_chunks, session_id: returnedRagSessionId, message_id: ragMessageId } = ragResponse;
+
+    console.log('RAG API Response:', JSON.stringify(ragResponse, null, 2));
+
+    // Store RAG session ID in MongoDB session metadata for future requests
+    if (returnedRagSessionId && returnedRagSessionId !== ragSessionId) {
+      await ChatSession.findByIdAndUpdate(mongoSessionId, {
+        $set: { 'metadata.rag_session_id': returnedRagSessionId }
+      });
+    }
+
+    // Save assistant message to MongoDB
     const assistMsg = await ChatMessage.create({
-      session: session_id,
+      session: mongoSessionId,
       role: "assistant",
-      content: response || "",
+      content: content || "",
       model: "rag",
-      sources: Array.isArray(sources) ? sources : undefined, // optional if schema allows
+      sources: Array.isArray(retrieved_chunks) ? retrieved_chunks : undefined,
     });
 
-    // Update chat count
-    const total = await ChatMessage.countDocuments({ session: session_id });
-    await ChatSession.findByIdAndUpdate(session_id, { chat_count: total });
+    // Update chat count in MongoDB
+    const total = await ChatMessage.countDocuments({ session: mongoSessionId });
+    await ChatSession.findByIdAndUpdate(mongoSessionId, { chat_count: total });
 
-    // Return aligned shape with LLM (so frontend can reuse)
+    // Return aligned shape with MongoDB session ID (so frontend sessions work)
     return res.status(200).json({
-      response: response || "",
-      sources: sources || [],
-      session_id,
+      response: content || "",
+      sources: retrieved_chunks || [],
+      session_id: mongoSessionId, // Return MongoDB session ID to frontend
       message_count: total,
       message_id: assistMsg._id,
     });
   } catch (e) {
     console.error("RAG Query Error:", e.message);
+    console.error("RAG Query Error Details:", e.response?.data);
     const status = e.response?.status || 500;
     return res.status(status).json({
       error: "RAG query failed",

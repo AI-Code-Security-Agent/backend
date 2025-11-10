@@ -14,6 +14,15 @@ const ChatSessionSchema = new Schema({
     type: Number,
     default: 0,
   },
+  model: {
+    type: String,
+    enum: ["rag", "llm", "llm_demo"],
+    default: "llm",
+  },
+  metadata: {
+    type: Schema.Types.Mixed,
+    default: {},
+  },
   createdAt: {
     type: Date,
     default: Date.now,

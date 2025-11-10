@@ -32,7 +32,7 @@ app.use(express.urlencoded({ extended: true }));
 // Session middleware setup
 app.use(
     session({
-      secret: "defaultSecretKey",
+      secret: process.env.SESSION_SECRET || "defaultSecretKey",
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -59,6 +59,7 @@ app.use("/profile", require("./routes/profile.route"));
 app.use("/chat", require("./routes/chat.route"));
 app.use('/users', require('./routes/user.route'));
 app.use("/auth", require('./routes/auth.route'));
+app.use("/github", require('./routes/github.route'));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
