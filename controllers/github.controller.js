@@ -28,6 +28,14 @@ exports.initiateGitHubAuth = async (req, res) => {
             return res.status(401).json({ error: 'User not authenticated' });
         }
 
+        // Check if there's an existing inactive integration (previously disconnected)
+        // If so, we'll reactivate it during the callback, but always force new OAuth
+        const existingIntegration = await GitHubIntegration.findOne({ userId: userId });
+        if (existingIntegration) {
+            console.log('Found existing GitHub integration (may be inactive), will require re-authentication');
+            // Don't auto-connect - force full OAuth flow
+        }
+
         // Generate state for CSRF protection
         const state = GitHubOAuthService.generateState();
         
@@ -512,7 +520,8 @@ exports.disconnectGitHub = async (req, res) => {
             return res.status(404).json({ error: 'GitHub not connected' });
         }
 
-        // Attempt to remove any created webhooks and RAG repositories for connected repositories
+        // Attempt to remove any created webhooks for connected repositories
+        // Note: We keep RAG repositories and their indexed data for future queries
         const accessToken = GitHubOAuthService.decryptToken(integration.accessToken);
 
         for (const repo of integration.connectedRepositories || []) {
@@ -525,26 +534,17 @@ exports.disconnectGitHub = async (req, res) => {
                 console.error(`Error deleting webhook for ${repo.fullName}:`, err.message);
                 // continue
             }
-
-            try {
-                if (repo.ragRepositoryId) {
-                    await axios.delete(`${RAG_API_URL}/api/repositories/${repo.ragRepositoryId}`, {
-                        params: { user_id: userId }
-                    });
-                }
-            } catch (err) {
-                console.error(`Error deleting RAG repository for ${repo.fullName}:`, err.message);
-            }
         }
 
-        // Clear connected repositories and mark integration inactive (for audit trail)
-        integration.connectedRepositories = [];
+        // Mark integration inactive but KEEP connectedRepositories for historical access
+        // This allows users to query their repositories even after disconnecting GitHub
         integration.active = false;
+        integration.accessToken = null; // Clear access token for security
         await integration.save();
 
         res.json({
             success: true,
-            message: 'GitHub disconnected successfully and webhooks removed'
+            message: 'GitHub disconnected successfully. Your repositories remain available for queries.'
         });
     } catch (error) {
         console.error('Error disconnecting GitHub:', error);
@@ -562,13 +562,19 @@ exports.getConnectedRepositories = async (req, res) => {
     try {
         const userId = req.user?.id;
 
+        // Find integration regardless of active status
+        // This allows users to access their repositories even after disconnecting GitHub
         const integration = await GitHubIntegration.findOne({
-            userId: userId,
-            active: true
+            userId: userId
         });
 
-        if (!integration) {
-            return res.status(404).json({ error: 'GitHub not connected' });
+        if (!integration || !integration.connectedRepositories || integration.connectedRepositories.length === 0) {
+            return res.json({
+                success: true,
+                repositories: [],
+                selectedRepository: null,
+                githubConnected: false
+            });
         }
 
         // Get indexing status from RAG API for each repository
@@ -604,7 +610,8 @@ exports.getConnectedRepositories = async (req, res) => {
         res.json({
             success: true,
             repositories: repositoriesWithStatus,
-            selectedRepository: integration.selectedRepository || null
+            selectedRepository: integration.selectedRepository || null,
+            githubConnected: integration.active || false
         });
     } catch (error) {
         console.error('Error getting connected repositories:', error);
@@ -623,13 +630,14 @@ exports.selectRepository = async (req, res) => {
         const userId = req.user?.id;
         const { repositoryId } = req.body;
 
+        // Find integration regardless of active status
+        // Allow selecting repositories even when GitHub is disconnected
         const integration = await GitHubIntegration.findOne({
-            userId: userId,
-            active: true
+            userId: userId
         });
 
         if (!integration) {
-            return res.status(404).json({ error: 'GitHub not connected' });
+            return res.status(404).json({ error: 'No GitHub integration found' });
         }
 
         // Verify the repository is connected
